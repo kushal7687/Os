@@ -67,9 +67,9 @@ export interface SearchResult {
 export const performWebSearch = async (query: string): Promise<SearchResult[]> => {
     try {
         const ai = getClient();
-        // Using pro-image-preview model as it supports the googleSearch tool best per instructions
+        // Using gemini-3-flash-preview for text tasks with search grounding
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash', 
+            model: 'gemini-3-flash-preview', 
             contents: `Search for: ${query}. Return a list of 5 relevant results.`,
             config: {
                 tools: [{ googleSearch: {} }]
@@ -110,7 +110,7 @@ export const readWebPage = async (url: string): Promise<string> => {
   try {
     const ai = getClient();
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: `You are a web browser engine. 
       Access this URL: "${url}" (using your search tools if needed) and render its main content as clean, readable Markdown.
       Ignore navigation menus, ads, and footers. Focus on the article text, main information, or video descriptions.
