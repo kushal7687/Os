@@ -35,7 +35,7 @@ export class VirtualFileSystem {
         'sudo', 'nmap', 'hydra', 'sqlmap', 'msfconsole', 'wifite', 'aircrack-ng', 
         'john', 'hashcat', 'burpsuite', 'nikto', 'netcat', 'nc', 'ssh', 
         'python3', 'gcc', 'curl', 'wget', 'git', 'vim', 'nano', 'whois',
-        'camshot', 'geoloc', 'arecord', 'neofetch', 'ghost' // Added ghost
+        'camshot', 'geoloc', 'arecord', 'neofetch'
     ];
     hackerTools.forEach(t => this.writeFile(usrBin, t, 'ELF 64-bit LSB pie executable'));
 
