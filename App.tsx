@@ -21,8 +21,8 @@ const PlaceholderApp: React.FC<{title: string}> = ({ title }) => (
     </div>
 );
 
-// We define this without the explicit type annotation first.
-// This allows the object to be created without strict checking against AppDefinition immediately.
+// We define this without the explicit type annotation (Record<string, AppDefinition>) 
+// to prevent TypeScript from strictly checking the component props inside the object literal.
 const DEFAULT_REGISTRY = {
   [APP_IDS.TERMINAL]: { id: APP_IDS.TERMINAL, name: 'Terminal', icon: Terminal, color: 'emerald', component: TerminalApp, isSystem: true },
   [APP_IDS.SETTINGS]: { id: APP_IDS.SETTINGS, name: 'Settings', icon: Settings, color: 'slate', component: SettingsApp as any, isSystem: true },
@@ -41,8 +41,7 @@ const DEFAULT_REGISTRY = {
 };
 
 export default function App() {
-  // We explicitly cast DEFAULT_REGISTRY to 'any' here. 
-  // This tells TypeScript "Trust me, I know this matches AppDefinition" and ignores mismatches.
+  // Cast DEFAULT_REGISTRY to 'any' before casting to the Record type to bypass strict checks
   const [appRegistry, setAppRegistry] = useState<Record<string, AppDefinition>>(DEFAULT_REGISTRY as any);
 
   const [installedApps, setInstalledApps] = useState<string[]>([

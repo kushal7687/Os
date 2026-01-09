@@ -3,12 +3,12 @@ import React from 'react';
 export interface AppDefinition {
   id: string;
   name: string;
-  icon: any; // Relaxed to 'any' to prevent Lucide version mismatches
+  icon: any; 
   color: string;
-  component: any; // Relaxed to 'any' to accept components with varying props (like SettingsApp)
+  component: any; // Explicitly set to 'any' to allow components with different Prop requirements (e.g. SettingsApp vs TerminalApp)
   isSystem?: boolean; 
   defaultUrl?: string;
-  [key: string]: any; // Index signature: Allow any other extra properties to prevent strict errors
+  [key: string]: any; // Index signature to allow extra properties
 }
 
 export interface AppProps {
@@ -21,7 +21,7 @@ export interface AppProps {
 }
 
 export interface WindowState {
-  id: string; // appId
+  id: string; 
   zIndex: number;
   minimized: boolean;
   position?: { x: number; y: number };
@@ -36,11 +36,9 @@ export interface SystemSettings {
   hostname: string;
   isComputerMode: boolean;
   themeMode: 'default' | 'hacker'; 
-  // Home Screen
   iconSize: 'small' | 'medium' | 'large';
   gridDensity: 'compact' | 'comfortable';
   glassIntensity: 'low' | 'medium' | 'high';
-  // Dock / Taskbar
   dockPosition: 'bottom' | 'left' | 'right';
   dockBehavior: 'always' | 'intelligent' | 'hidden';
 }
@@ -50,5 +48,5 @@ export interface FileSystemNode {
   type: 'file' | 'dir';
   content?: string;
   children?: { [key: string]: FileSystemNode };
-  parent?: FileSystemNode; // Reference for traversal
+  parent?: FileSystemNode; 
 }
