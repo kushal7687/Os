@@ -5,7 +5,7 @@ export interface AppDefinition {
   name: string;
   icon: any; // Lucide Icon component
   color: string;
-  component: any; // Relaxed to 'any' to prevent TypeScript variance errors with specific app props
+  component: any; // Explicitly 'any' to allow components with different Prop interfaces (like SettingsAppProps)
   isSystem?: boolean; // Cannot be uninstalled
   defaultUrl?: string; // For web apps
 }
@@ -15,7 +15,7 @@ export interface AppProps {
   onClose: () => void;
   isFocused: boolean;
   isComputerMode?: boolean;
-  isHackerMode?: boolean; // New Prop
+  isHackerMode?: boolean; 
   args?: any;
 }
 
@@ -34,7 +34,7 @@ export interface SystemSettings {
   userName: string;
   hostname: string;
   isComputerMode: boolean;
-  themeMode: 'default' | 'hacker'; // New Setting
+  themeMode: 'default' | 'hacker'; 
   // Home Screen
   iconSize: 'small' | 'medium' | 'large';
   gridDensity: 'compact' | 'comfortable';

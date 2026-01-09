@@ -23,8 +23,8 @@ const PlaceholderApp: React.FC<{title: string}> = ({ title }) => (
 
 const DEFAULT_REGISTRY: Record<string, AppDefinition> = {
   [APP_IDS.TERMINAL]: { id: APP_IDS.TERMINAL, name: 'Terminal', icon: Terminal, color: 'emerald', component: TerminalApp, isSystem: true },
-  [APP_IDS.SETTINGS]: { id: APP_IDS.SETTINGS, name: 'Settings', icon: Settings, color: 'slate', component: SettingsApp, isSystem: true },
-  [APP_IDS.STORE]: { id: APP_IDS.STORE, name: 'Cloud Store', icon: Cloud, color: 'sky', component: StoreApp, isSystem: true },
+  [APP_IDS.SETTINGS]: { id: APP_IDS.SETTINGS, name: 'Settings', icon: Settings, color: 'slate', component: SettingsApp as any, isSystem: true },
+  [APP_IDS.STORE]: { id: APP_IDS.STORE, name: 'Cloud Store', icon: Cloud, color: 'sky', component: StoreApp as any, isSystem: true },
   [APP_IDS.ASSISTANT]: { id: APP_IDS.ASSISTANT, name: 'Assistant', icon: Search, color: 'indigo', component: AssistantApp, isSystem: true },
   [APP_IDS.BROWSER]: { id: APP_IDS.BROWSER, name: 'Shadow Surf', icon: Globe, color: 'blue', component: BrowserApp, isSystem: true },
   [APP_IDS.RADIO]: { id: APP_IDS.RADIO, name: 'World Radio', icon: Radio, color: 'violet', component: RadioApp, isSystem: true },
