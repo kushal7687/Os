@@ -21,9 +21,9 @@ const PlaceholderApp: React.FC<{title: string}> = ({ title }) => (
     </div>
 );
 
-// We remove the explicit : Record<string, AppDefinition> annotation here to prevent
-// strict TypeScript checks on the component props during initialization.
-// The components are cast to 'any' to satisfy the AppDefinition interface later.
+// NOTE: We do NOT strictly type this constant as Record<string, AppDefinition> here.
+// This allows TypeScript to infer the specific shape first, preventing "Props incompatible" errors.
+// We then cast it to 'any' when passing to useState.
 const DEFAULT_REGISTRY = {
   [APP_IDS.TERMINAL]: { id: APP_IDS.TERMINAL, name: 'Terminal', icon: Terminal, color: 'emerald', component: TerminalApp, isSystem: true },
   [APP_IDS.SETTINGS]: { id: APP_IDS.SETTINGS, name: 'Settings', icon: Settings, color: 'slate', component: SettingsApp as any, isSystem: true },
@@ -42,7 +42,8 @@ const DEFAULT_REGISTRY = {
 };
 
 export default function App() {
-  const [appRegistry, setAppRegistry] = useState<Record<string, AppDefinition>>(DEFAULT_REGISTRY as unknown as Record<string, AppDefinition>);
+  // Cast DEFAULT_REGISTRY to 'any' first to bypass strict prop checks, then to the target type.
+  const [appRegistry, setAppRegistry] = useState<Record<string, AppDefinition>>(DEFAULT_REGISTRY as any);
 
   const [installedApps, setInstalledApps] = useState<string[]>([
     APP_IDS.TERMINAL, 
