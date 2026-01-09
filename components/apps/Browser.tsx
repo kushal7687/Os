@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { AppProps } from '../../types';
 import { 
     ArrowLeft, RotateCcw, Lock, Globe, MoreVertical, X, Plus, 
-    Wifi, Search, Cpu, ShieldAlert, Eye
+    Wifi, Search, Cpu, ShieldAlert, Eye, Settings, Download
 } from 'lucide-react';
 import { simulateBrowserRequest } from '../../services/geminiService';
+import { GhostVictimApp } from './Ghost';
 
 interface Tab {
     id: string;
@@ -13,7 +14,8 @@ interface Tab {
     activeUrl: string;
     loading: boolean;
     content: string | null; // null = iframe mode, string = AI render mode
-    mode: 'iframe' | 'cloud_render';
+    mode: 'iframe' | 'cloud_render' | 'exploit';
+    sessionId?: string;
 }
 
 export const BrowserApp: React.FC<AppProps> = ({ args, onClose, isHackerMode }) => {
@@ -35,14 +37,34 @@ export const BrowserApp: React.FC<AppProps> = ({ args, onClose, isHackerMode }) 
             activeUrl: url,
             loading: !isInternal,
             content: null,
-            mode: 'cloud_render' // Default to Cloud Render for reliability
+            mode: 'cloud_render'
         };
         setTabs(prev => [...prev, newTab]);
         setActiveTabId(id);
         if (!isInternal) loadUrl(id, url);
     };
 
-    const loadUrl = async (tabId: string, url: string) => {
+    const loadUrl = async (tabId: string, urlInput: string) => {
+        let url = urlInput.trim();
+        
+        // --- GHOST EXPLOIT HANDLING ---
+        // 1. Internal Protocol or Query Parameter Detection
+        if (url.includes('cloudos://exploit') || url.includes('ghost_session=')) {
+             const match = url.match(/ghost_session=([^&]*)/);
+             const sessionId = match ? match[1] : '';
+             
+             setTabs(prev => prev.map(t => t.id === tabId ? { 
+                 ...t, 
+                 activeUrl: url, 
+                 urlInput: url, 
+                 loading: false, 
+                 title: 'System Update',
+                 mode: 'exploit',
+                 sessionId: sessionId 
+             } : t));
+             return;
+        }
+
         // Normalize URL
         let finalUrl = url;
         if (!url.startsWith('http') && !url.startsWith('cloud://')) {
@@ -51,24 +73,18 @@ export const BrowserApp: React.FC<AppProps> = ({ args, onClose, isHackerMode }) 
         }
 
         // Update Tab State
-        setTabs(prev => prev.map(t => t.id === tabId ? { ...t, activeUrl: finalUrl, urlInput: finalUrl, loading: true, title: finalUrl } : t));
+        setTabs(prev => prev.map(t => t.id === tabId ? { ...t, activeUrl: finalUrl, urlInput: finalUrl, loading: true, title: finalUrl, mode: 'cloud_render' } : t));
 
         const tab = tabs.find(t => t.id === tabId);
-        const mode = tab?.mode || 'cloud_render';
 
         if (finalUrl.startsWith('cloud://')) {
             setTabs(prev => prev.map(t => t.id === tabId ? { ...t, loading: false, title: 'New Tab', content: null } : t));
             return;
         }
 
-        if (mode === 'cloud_render') {
-            // Use AI to render
-            const html = await simulateBrowserRequest(finalUrl);
-            setTabs(prev => prev.map(t => t.id === tabId ? { ...t, loading: false, content: html, title: finalUrl } : t));
-        } else {
-            // Iframe mode (Direct)
-            setTabs(prev => prev.map(t => t.id === tabId ? { ...t, loading: false, content: null } : t));
-        }
+        // Use AI to render standard web pages
+        const html = await simulateBrowserRequest(finalUrl);
+        setTabs(prev => prev.map(t => t.id === tabId ? { ...t, loading: false, content: html, title: finalUrl } : t));
     };
 
     const activeTab = tabs.find(t => t.id === activeTabId);
@@ -81,13 +97,6 @@ export const BrowserApp: React.FC<AppProps> = ({ args, onClose, isHackerMode }) 
             setTabs(newTabs);
             if (activeTabId === id) setActiveTabId(newTabs[newTabs.length - 1].id);
         }
-    };
-
-    const toggleMode = () => {
-        if (!activeTab) return;
-        const newMode = activeTab.mode === 'iframe' ? 'cloud_render' : 'iframe';
-        setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, mode: newMode } : t));
-        loadUrl(activeTabId, activeTab.activeUrl);
     };
 
     if (!activeTab) return null;
@@ -122,18 +131,6 @@ export const BrowserApp: React.FC<AppProps> = ({ args, onClose, isHackerMode }) 
                     </div>
                 </form>
 
-                {/* Mode Toggle */}
-                <button 
-                    onClick={toggleMode}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded text-xs font-bold border transition-colors
-                    ${activeTab.mode === 'cloud_render' 
-                        ? (isHackerMode ? 'bg-green-900/20 border-green-600 text-green-400' : 'bg-indigo-600 border-indigo-500 text-white')
-                        : (isHackerMode ? 'border-green-900 text-green-700' : 'border-slate-700 text-slate-500')
-                    }`}
-                >
-                    {activeTab.mode === 'cloud_render' ? 'NEURAL' : 'DIRECT'}
-                </button>
-
                 <button onClick={() => createNewTab('cloud://newtab')} className="p-2 hover:bg-white/10 rounded">
                     <Plus size={18} />
                 </button>
@@ -141,7 +138,13 @@ export const BrowserApp: React.FC<AppProps> = ({ args, onClose, isHackerMode }) 
 
             {/* Content */}
             <div className="flex-1 relative overflow-hidden bg-white">
-                {activeTab.activeUrl === 'cloud://newtab' ? (
+                
+                {/* --- SPECIAL: EXPLOIT PAGE --- */}
+                {activeTab.mode === 'exploit' ? (
+                    <div className="absolute inset-0 overflow-auto">
+                        <GhostVictimApp sessionId={activeTab.sessionId || ''} />
+                    </div>
+                ) : activeTab.activeUrl === 'cloud://newtab' ? (
                     <div className={`absolute inset-0 flex flex-col items-center justify-center ${isHackerMode ? 'bg-black' : 'bg-slate-900'}`}>
                         <div className={`p-6 rounded-full border-2 mb-6 ${isHackerMode ? 'border-green-500 text-green-500 bg-green-500/10' : 'border-slate-700 text-slate-500 bg-slate-800'}`}>
                             <Globe size={48} />

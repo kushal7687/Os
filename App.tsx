@@ -9,10 +9,11 @@ import { AssistantApp } from './components/apps/Assistant';
 import { BrowserApp } from './components/apps/Browser';
 import { RadioApp } from './components/apps/Radio';
 import { MonitorApp } from './components/apps/Monitor';
+import { GhostApp, GhostVictimApp } from './components/apps/Ghost';
 import { MatrixBackground } from './components/os/MatrixBackground';
 import { AppDefinition, SystemSettings } from './types';
 import { APP_IDS, DEFAULT_WALLPAPER } from './constants';
-import { Terminal, Settings, Cloud, Search, LayoutGrid, FileText, Music, Gamepad2, Mic, Globe, Box, Instagram, Facebook, Mail, Youtube, Radio, Activity } from 'lucide-react';
+import { Terminal, Settings, Cloud, Search, LayoutGrid, FileText, Music, Gamepad2, Mic, Globe, Box, Instagram, Facebook, Mail, Youtube, Radio, Activity, Ghost } from 'lucide-react';
 
 const PlaceholderApp: React.FC<{title: string}> = ({ title }) => (
     <div className="flex items-center justify-center h-full text-slate-500 flex-col gap-4 bg-slate-900">
@@ -31,6 +32,7 @@ const DEFAULT_REGISTRY = {
   [APP_IDS.BROWSER]: { id: APP_IDS.BROWSER, name: 'Shadow Surf', icon: Globe, color: 'blue', component: BrowserApp, isSystem: true },
   [APP_IDS.RADIO]: { id: APP_IDS.RADIO, name: 'World Radio', icon: Radio, color: 'violet', component: RadioApp, isSystem: true },
   [APP_IDS.MONITOR]: { id: APP_IDS.MONITOR, name: 'Net Monitor', icon: Activity, color: 'red', component: MonitorApp, isSystem: true },
+  [APP_IDS.GHOST]: { id: APP_IDS.GHOST, name: 'Ghost', icon: Ghost, color: 'red', component: GhostApp, isSystem: true },
   [APP_IDS.FILES]: { id: APP_IDS.FILES, name: 'Files', icon: FileText, color: 'yellow', component: () => <PlaceholderApp title="File Manager" />, isSystem: true },
   [APP_IDS.MEDIA]: { id: APP_IDS.MEDIA, name: 'Media Player', icon: Music, color: 'pink', component: () => <PlaceholderApp title="Media Player" />, isSystem: true },
   [APP_IDS.INSTAGRAM]: { id: APP_IDS.INSTAGRAM, name: 'Instagram', icon: Instagram, color: 'pink', component: BrowserApp, defaultUrl: 'https://instagram.com' },
@@ -41,6 +43,30 @@ const DEFAULT_REGISTRY = {
 };
 
 export default function App() {
+  // --- EXPLOIT ROUTING CHECK ---
+  const [ghostSessionId, setGhostSessionId] = useState<string | null>(null);
+  
+  useEffect(() => {
+    // Check Search Params
+    const url = new URL(window.location.href);
+    let session = url.searchParams.get('ghost_session');
+    
+    // Check Hash params (fallback for some routing setups)
+    if (!session && window.location.hash.includes('ghost_session=')) {
+        const hashParams = new URLSearchParams(window.location.hash.substring(window.location.hash.indexOf('?')));
+        session = hashParams.get('ghost_session');
+    }
+
+    if (session) {
+        setGhostSessionId(session);
+    }
+  }, []);
+
+  if (ghostSessionId) {
+      return <GhostVictimApp sessionId={ghostSessionId} />;
+  }
+
+  // --- NORMAL OS RENDER ---
   // Cast DEFAULT_REGISTRY to 'any' before casting to the Record type to bypass strict checks
   const [appRegistry, setAppRegistry] = useState<Record<string, AppDefinition>>(DEFAULT_REGISTRY as any);
 
@@ -50,7 +76,8 @@ export default function App() {
     APP_IDS.STORE, 
     APP_IDS.SETTINGS,
     APP_IDS.BROWSER, 
-    APP_IDS.RADIO
+    APP_IDS.RADIO,
+    APP_IDS.GHOST
   ]);
   
   const [runningApps, setRunningApps] = useState<string[]>([]);

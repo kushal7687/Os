@@ -70,7 +70,12 @@ export const MonitorApp: React.FC<AppProps> = ({ isHackerMode }) => {
         try {
             // Browser Security: Must be triggered by user gesture
             // Browser Security: Only shows devices in pairing mode
-            const device = await (navigator as any).bluetooth.requestDevice({
+            const nav = navigator as any;
+            if (!nav.bluetooth) {
+                alert("Bluetooth API not supported in this browser.");
+                return;
+            }
+            const device = await nav.bluetooth.requestDevice({
                 acceptAllDevices: true,
                 optionalServices: ['battery_service']
             });

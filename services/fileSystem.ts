@@ -17,16 +17,30 @@ export class VirtualFileSystem {
 
     // --- Build Standard Linux Hierarchy ---
     const bin = this.mkdir(this.root, 'bin');
+    const sbin = this.mkdir(this.root, 'sbin');
     const etc = this.mkdir(this.root, 'etc');
     const home = this.mkdir(this.root, 'home');
     const rootHome = this.mkdir(this.root, 'root');
     const tmp = this.mkdir(this.root, 'tmp');
     const usr = this.mkdir(this.root, 'usr');
+    const usrBin = this.mkdir(usr, 'bin');
+    const usrShare = this.mkdir(usr, 'share');
     const varDir = this.mkdir(this.root, 'var');
 
+    // Populate /bin and /usr/bin with standard tools
+    const commonTools = ['ls', 'cd', 'pwd', 'cat', 'echo', 'mkdir', 'rm', 'touch', 'mv', 'cp', 'grep', 'clear', 'ps', 'kill', 'chmod', 'chown'];
+    commonTools.forEach(t => this.writeFile(bin, t, 'Binary executable'));
+
+    const hackerTools = [
+        'sudo', 'nmap', 'hydra', 'sqlmap', 'msfconsole', 'wifite', 'aircrack-ng', 
+        'john', 'hashcat', 'burpsuite', 'nikto', 'netcat', 'nc', 'ssh', 
+        'python3', 'gcc', 'curl', 'wget', 'git', 'vim', 'nano', 'whois',
+        'camshot', 'geoloc', 'arecord', 'neofetch', 'ghost' // Added ghost
+    ];
+    hackerTools.forEach(t => this.writeFile(usrBin, t, 'ELF 64-bit LSB pie executable'));
+
     // /usr/share/wordlists (Kali Standard)
-    const share = this.mkdir(usr, 'share');
-    const wordlists = this.mkdir(share, 'wordlists');
+    const wordlists = this.mkdir(usrShare, 'wordlists');
     this.writeFile(wordlists, 'rockyou.txt', '123456\npassword\nadmin\n12345678\nroot\n...(14 million entries)...');
 
     // /etc/passwd
@@ -35,9 +49,12 @@ export class VirtualFileSystem {
     // /etc/os-release
     this.writeFile(etc, 'os-release', 'PRETTY_NAME="Kali GNU/Linux Rolling"\nNAME="Kali GNU/Linux"\nID=kali\nVERSION="2024.1"\nID_LIKE=debian');
 
+    // /etc/hosts
+    this.writeFile(etc, 'hosts', '127.0.0.1\tlocalhost\n127.0.1.1\tkali');
+
     // /root/
-    this.writeFile(rootHome, 'welcome.msg', 'Welcome to the Neural Kernel.\nAll systems operational.');
-    this.writeFile(rootHome, 'todo.txt', '- Update metasploit\n- Scan target 192.168.1.55\n- Write payload.py');
+    this.writeFile(rootHome, 'todo.txt', '- pentest target 10.10.11.24\n- update exploits\n');
+    this.writeFile(rootHome, 'hashes.txt', 'admin:$1$526372... (md5)\nroot:$6$83747... (sha512)');
 
     // Set CWD to /root
     this.current = rootHome;
@@ -140,7 +157,7 @@ export class VirtualFileSystem {
       this.current = target;
       return '';
     }
-    return `cd: no such file or directory: ${path}`;
+    return `bash: cd: ${path}: No such file or directory`;
   }
 
   ls(flags: string = ''): string {
@@ -152,8 +169,9 @@ export class VirtualFileSystem {
     return items.map(node => {
         let color = '\x1b[0m'; // Default white
         if (node.type === 'dir') color = '\x1b[1;34m'; // Blue Bold
-        else if (node.name.endsWith('.sh') || node.name.endsWith('.py') || node.name.endsWith('.pl')) color = '\x1b[1;32m'; // Green Bold
-        else if (node.name.endsWith('.zip') || node.name.endsWith('.tar.gz')) color = '\x1b[1;31m'; // Red Bold
+        else if (node.name.endsWith('.sh') || node.name.endsWith('.py') || node.name.endsWith('.pl') || node.content === 'Binary executable' || node.content === 'ELF 64-bit LSB pie executable') color = '\x1b[1;32m'; // Green Bold
+        else if (node.name.endsWith('.zip') || node.name.endsWith('.tar.gz') || node.name.endsWith('.cap')) color = '\x1b[1;31m'; // Red Bold
+        else if (node.name.endsWith('.jpg') || node.name.endsWith('.png')) color = '\x1b[1;35m'; // Purple Bold
         
         return `${color}${node.name}\x1b[0m`;
     }).join('  ');
@@ -167,22 +185,6 @@ export class VirtualFileSystem {
       node = node.parent;
     }
     return path || '/';
-  }
-
-  // Generate context for AI execution
-  getAIContext(): string {
-      const files = this.current.children ? Object.keys(this.current.children) : [];
-      let context = `Current User: root\nCurrent Directory: ${this.pwd()}\nDirectory Contents: ${JSON.stringify(files)}\n`;
-      
-      // If there are scripts in the directory, feed their content to AI so it can "run" them
-      files.forEach(f => {
-          const node = this.current.children![f];
-          if (node.type === 'file' && (f.endsWith('.py') || f.endsWith('.sh') || f.endsWith('.txt'))) {
-              context += `\n[FILE START: ${f}]\n${node.content}\n[FILE END: ${f}]\n`;
-          }
-      });
-
-      return context;
   }
 }
 

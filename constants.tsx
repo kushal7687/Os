@@ -1,4 +1,4 @@
-import { Terminal, Settings, Cloud, Search, FileText, Music, Gamepad2, Mic, Globe, Box, Instagram, Facebook, Mail, Youtube, Radio, Activity } from 'lucide-react';
+import { Terminal, Settings, Cloud, Search, FileText, Music, Gamepad2, Mic, Globe, Box, Instagram, Facebook, Mail, Youtube, Radio, Activity, Ghost } from 'lucide-react';
 
 export const DEFAULT_WALLPAPER = "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=1920&auto=format&fit=crop";
 export const HACKER_WALLPAPER = "https://i.pinimg.com/originals/f9/56/67/f9566774df355c707d8d2b992f33f443.gif"; // Reliable Matrix Rain GIF
@@ -43,6 +43,7 @@ export const APP_IDS = {
   BROWSER: 'browser',
   RADIO: 'radio',
   MONITOR: 'monitor',
+  GHOST: 'ghost',
   MEDIA: 'media',
   GAME: 'game',
   // Social & Web Apps

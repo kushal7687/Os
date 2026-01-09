@@ -1,8 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { AppProps } from '../../types';
 import { fs } from '../../services/fileSystem';
 import { SimulatedShell } from '../../services/simulatedShell';
-import { Loader2, Terminal as TerminalIcon } from 'lucide-react';
+import { Terminal as TerminalIcon } from 'lucide-react';
 
 interface Log {
   type: 'input' | 'output' | 'system' | 'error' | 'success';
@@ -21,25 +21,26 @@ export const TerminalApp: React.FC<AppProps> = ({ isFocused, onClose, isHackerMo
   const inputRef = useRef<HTMLInputElement>(null);
   const shellRef = useRef<SimulatedShell>(new SimulatedShell(fs));
 
+  // Boot Sequence
   useEffect(() => {
     if (!booted) {
         const bootSequence = async () => {
             const lines = [
-                "Initialising CloudOS Kernel v3.0.0...",
-                "Loading drivers... [OK]",
-                "Mounting virtual filesystem... [OK]",
-                "Checking network interfaces... [OK]",
-                "Establishing secure uplink... [CONNECTED]",
-                "--------------------------------------------------",
-                "CloudOS Shell [Version 3.0.0-kali]",
-                "(c) 2024 CloudOS Security. All rights reserved.",
-                "Type 'help' for a list of available commands.",
-                "--------------------------------------------------",
+                { text: "Kali GNU/Linux Rolling kali tty1", delay: 100 },
+                { text: "", delay: 100 },
+                { text: "kali login: root", delay: 400 },
+                { text: "Password: ", delay: 800 },
+                { text: "\nLast login: " + new Date().toUTCString() + " from 192.168.1.1 on pts/0", delay: 200 },
+                { text: "Linux kali 6.6.9-amd64 #1 SMP PREEMPT_DYNAMIC Kali 2024.1", delay: 100 },
+                { text: "", delay: 50 },
             ];
             
             for (const line of lines) {
-                setHistory(prev => [...prev, { type: 'system', content: line }]);
-                await new Promise(r => setTimeout(r, 100));
+                if (line.text.includes("Password")) {
+                     await new Promise(r => setTimeout(r, 600));
+                }
+                setHistory(prev => [...prev, { type: 'system', content: line.text }]);
+                await new Promise(r => setTimeout(r, line.delay));
             }
             setBooted(true);
         };
@@ -47,15 +48,19 @@ export const TerminalApp: React.FC<AppProps> = ({ isFocused, onClose, isHackerMo
     }
   }, [booted]);
 
+  // Focus
   useEffect(() => {
-    if (isFocused && inputRef.current) {
-      inputRef.current.focus();
+    if (isFocused && inputRef.current && booted) {
+      setTimeout(() => inputRef.current?.focus(), 50);
     }
-  }, [isFocused]);
+  }, [isFocused, booted]);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [history, loading]);
+  // Scroll Behavior - ONLY scroll when history actually changes to prevent jumping while typing
+  useLayoutEffect(() => {
+    if (bottomRef.current) {
+        bottomRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [history.length, loading, booted]); 
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
       if (e.key === 'ArrowUp') {
@@ -75,9 +80,39 @@ export const TerminalApp: React.FC<AppProps> = ({ isFocused, onClose, isHackerMo
               setHistoryIndex(-1);
               setInput('');
           }
+      } else if (e.key === 'Tab') {
+          e.preventDefault();
+          const parts = input.split(' ');
+          const lastPart = parts[parts.length - 1];
+          
+          let options: string[] = [];
+          if (parts.length === 1) {
+             const bin = fs.resolvePath('/bin');
+             const usrBin = fs.resolvePath('/usr/bin');
+             if (bin?.children) options.push(...Object.keys(bin.children));
+             if (usrBin?.children) options.push(...Object.keys(usrBin.children));
+          }
+          
+          const currentDir = fs.current;
+          if (currentDir.children) options.push(...Object.keys(currentDir.children));
+
+          const matches = [...new Set(options)].filter(o => o.startsWith(lastPart));
+          
+          if (matches.length === 1) {
+              parts[parts.length - 1] = matches[0];
+              setInput(parts.join(' '));
+          }
       } else if (e.key === 'c' && e.ctrlKey) {
-          setHistory(prev => [...prev, { type: 'system', content: '^C' }]);
+          // Interrupt Signal
+          setHistory(prev => [...prev, { type: 'input', content: (
+             <div className="flex gap-2">
+                 {getPromptDisplay()} <span className="opacity-50">{input}^C</span>
+             </div>
+          )}]);
           setInput('');
+          // NOTE: We can't easily kill the async generator from here without an abort controller structure in the Shell class,
+          // but clearing the input effectively resets the user loop.
+          setLoading(false); 
       }
   };
 
@@ -94,7 +129,7 @@ export const TerminalApp: React.FC<AppProps> = ({ isFocused, onClose, isHackerMo
         { 
             type: 'input', 
             content: (
-                <div className="flex gap-2 items-center">
+                <div className="flex flex-wrap gap-x-2 items-center">
                     {getPromptDisplay()} <span className="font-bold">{originalInput}</span>
                 </div>
             )
@@ -108,101 +143,142 @@ export const TerminalApp: React.FC<AppProps> = ({ isFocused, onClose, isHackerMo
 
     setLoading(true);
     
-    try {
-        const generator = shellRef.current.execute(originalInput);
-        
-        for await (const line of generator) {
-            if (line === 'CLEAR_SIGNAL') {
-                setHistory([]);
-            } else {
-                setHistory(prev => [...prev, { type: 'output', content: line }]);
+    // Process async execution
+    setTimeout(async () => {
+        try {
+            const generator = shellRef.current.execute(originalInput);
+            
+            for await (const line of generator) {
+                if (line === 'CLEAR_SIGNAL') {
+                    setHistory([]);
+                } else {
+                    setHistory(prev => [...prev, { type: 'output', content: line }]);
+                }
             }
+        } catch (e) {
+            setHistory(prev => [...prev, { type: 'error', content: 'bash: system error: kernel panic' }]);
+        } finally {
+            setLoading(false);
         }
-    } catch (e) {
-        setHistory(prev => [...prev, { type: 'error', content: 'bash: system error: execution halted' }]);
-    } finally {
-        setLoading(false);
-    }
+    }, 10);
   };
 
   const getPromptDisplay = () => {
      const path = fs.pwd().replace('/root', '~');
      return (
-         <div className="inline-flex flex-col leading-none mb-0.5 whitespace-nowrap">
-             <div className="flex">
-                 <span className="text-blue-500 font-bold">┌──(</span>
-                 <span className="text-red-500 font-bold">root💀kali</span>
-                 <span className="text-blue-500 font-bold">)-[</span>
-                 <span className="text-white font-bold">{path}</span>
-                 <span className="text-blue-500 font-bold">]</span>
-             </div>
-             <div className="flex">
-                 <span className="text-blue-500 font-bold">└─</span>
-                 <span className="text-red-500 font-bold">#</span>
-             </div>
+         <div className="inline-flex flex-wrap items-center gap-0 leading-tight whitespace-nowrap">
+             <span className="text-blue-500 font-bold">┌──(</span>
+             <span className="text-red-600 font-bold">root💀kali</span>
+             <span className="text-blue-500 font-bold">)-[</span>
+             <span className="text-white font-bold">{path}</span>
+             <span className="text-blue-500 font-bold">]</span>
+             <span className="w-full"></span> 
+             <span className="text-blue-500 font-bold">└─</span>
+             <span className="text-red-600 font-bold mr-2">#</span>
          </div>
      );
   };
 
-  const bgColor = isHackerMode ? 'bg-black' : 'bg-[#0d0d0d]';
-  const textColor = isHackerMode ? 'text-green-500' : 'text-[#e0e0e0]';
-  const glowClass = isHackerMode ? 'text-shadow-glow' : '';
-
+  // Styles
+  const bgColor = 'bg-[#0a0a0a]'; 
+  const textColor = 'text-gray-300';
+  
   return (
     <div 
-        className={`h-full w-full ${bgColor} ${textColor} p-2 font-mono text-sm overflow-hidden flex flex-col relative`} 
+        className={`h-full w-full ${bgColor} ${textColor} p-4 font-mono text-sm overflow-hidden relative cursor-text`} 
         onClick={() => inputRef.current?.focus()}
     >
       <style>{`
-        .text-shadow-glow { text-shadow: 0 0 5px rgba(0, 255, 0, 0.5); }
-        .scanline {
-            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
-            background-size: 100% 2px, 3px 100%;
-            pointer-events: none;
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+        .terminal-font { font-family: 'JetBrains Mono', monospace; }
+        
+        .scanlines {
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0) 50%,
+                rgba(0,0,0,0.2) 50%,
+                rgba(0,0,0,0.2)
+            );
+            background-size: 100% 4px;
+        }
+        
+        .glow-text {
+            text-shadow: 0 0 2px rgba(50, 255, 50, 0.2); 
+        }
+
+        .cmd-input {
+            caret-color: #00ff00;
+            outline: none;
+            background: transparent;
+            width: 100%;
+            border: none;
+            color: inherit;
+            font-family: inherit;
+            font-weight: bold;
+            padding: 0;
+            margin: 0;
         }
       `}</style>
 
-      {isHackerMode && <div className="absolute inset-0 scanline z-20 opacity-30"></div>}
-      
-      <div className="absolute inset-0 pointer-events-none z-0 flex items-center justify-center opacity-[0.05]">
-          <TerminalIcon size={400} />
-      </div>
+      {/* CRT Effects */}
+      <div className="absolute inset-0 scanlines opacity-10 pointer-events-none z-20"></div>
+      <div className="absolute inset-0 bg-gradient-to-br from-transparent via-transparent to-black/30 pointer-events-none z-10"></div>
 
-      <div className={`flex-1 overflow-y-auto scrollbar-hide space-y-1 relative z-10 p-2 ${glowClass}`}>
+      {/* Main Content Scroll Container */}
+      <div className="h-full w-full overflow-y-auto scrollbar-hide relative z-10 terminal-font glow-text pr-2">
+        
+        {!booted && (
+             <div className="flex items-center justify-center h-full text-blue-500 opacity-50">
+                <TerminalIcon size={64} />
+             </div>
+        )}
+
+        {/* History Log */}
         {history.map((log, i) => (
-          <div key={i} className={`break-words leading-tight whitespace-pre-wrap ${
-              log.type === 'error' ? 'text-red-500 font-bold' : 
-              log.type === 'success' ? 'text-green-400 font-bold' :
-              log.type === 'input' ? 'mt-4 mb-2' : 
-              isHackerMode ? 'text-green-500' : 'text-slate-300'
+          <div key={i} className={`mb-0.5 break-words leading-snug whitespace-pre-wrap ${
+              log.type === 'error' ? 'text-red-500' : 
+              log.type === 'success' ? 'text-green-400' :
+              log.type === 'input' ? 'mt-2 mb-1 text-white' : 
+              'text-gray-300'
           }`}>
             {log.content}
           </div>
         ))}
+        
         {loading && (
-          <div className="flex items-center gap-2 mt-2 opacity-80">
-            <Loader2 className="animate-spin" size={14} />
-          </div>
+            <div className="my-1">
+                <span className="inline-block w-2 h-4 bg-gray-500 animate-pulse"></span>
+            </div>
         )}
-        <div ref={bottomRef} />
-      </div>
-      
-      <div className={`mt-2 flex items-end p-2 rounded relative z-10 ${bgColor}`}>
-        <div className="shrink-0 mb-1.5 mr-2">{getPromptDisplay()}</div>
-        <input
-          ref={inputRef}
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-              if (e.key === 'Enter') executeCommand(input);
-              handleKeyDown(e);
-          }}
-          className={`flex-1 bg-transparent outline-none font-bold mb-1.5 min-w-[50px] ${textColor} ${glowClass}`}
-          autoComplete="off"
-          autoFocus
-          spellCheck={false}
-        />
+
+        {/* Prompt & Input Line (Active) */}
+        {!loading && booted && (
+            <div className="mt-2 flex flex-col md:flex-row md:items-center items-start">
+                 <div className="shrink-0 mr-0">{getPromptDisplay()}</div>
+                 <div className="flex-1 w-full relative">
+                     <input
+                        ref={inputRef}
+                        type="text"
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') executeCommand(input);
+                            handleKeyDown(e);
+                        }}
+                        className="cmd-input"
+                        autoComplete="off"
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                        autoFocus
+                     />
+                 </div>
+            </div>
+        )}
+        
+        {/* Invisible anchor to scroll to */}
+        <div ref={bottomRef} className="h-4" />
       </div>
     </div>
   );

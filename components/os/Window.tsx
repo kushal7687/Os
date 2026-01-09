@@ -174,8 +174,6 @@ export const Window: React.FC<WindowProps> = ({
     };
   }, [isDragging, isResizing, dragOffset]);
 
-  if (isMinimized) return null;
-
   const computerStyle: React.CSSProperties = maximized 
     ? { inset: '0px', top: '32px', borderRadius: 0 } 
     : { left: `${position.x}px`, top: `${position.y}px`, width: `${size.w}px`, height: `${size.h}px`, maxWidth: '100vw', maxHeight: '100vh' };
@@ -190,12 +188,15 @@ export const Window: React.FC<WindowProps> = ({
       className={`absolute flex flex-col overflow-hidden transition-all duration-75
         ${isFocused ? 'z-40 shadow-[0_20px_60px_rgba(0,0,0,0.6)]' : 'z-30 shadow-2xl opacity-90'}
         ${!maximized && isComputerMode ? 'rounded-xl border border-white/10 ring-1 ring-black/50' : ''}
+        ${isMinimized ? 'opacity-0 pointer-events-none scale-90' : 'opacity-100 scale-100'}
       `}
       style={{
          backgroundColor: 'var(--window-bg, #0f172a)',
          ...(isComputerMode ? computerStyle : mobileStyle),
          transition: (isDragging || isResizing) ? 'none' : 'opacity 0.2s, transform 0.2s, width 0.1s, height 0.1s',
-         animation: 'fadeIn 0.2s ease-out'
+         // NOTE: We don't use display:none because that might unmount/remount iframe content in some browsers or React keys.
+         // Visibility hidden + pointer events none is safer for state preservation.
+         visibility: isMinimized ? 'hidden' : 'visible',
       }}
     >
       {/* Title Bar */}
