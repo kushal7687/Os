@@ -5,7 +5,7 @@ export interface AppDefinition {
   name: string;
   icon: any; // Lucide Icon component
   color: string;
-  component: any; // Explicitly 'any' to allow components with different Prop interfaces (like SettingsAppProps)
+  component: any; // Explicitly 'any' to allow components with different Prop interfaces
   isSystem?: boolean; // Cannot be uninstalled
   defaultUrl?: string; // For web apps
 }
