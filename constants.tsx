@@ -44,6 +44,7 @@ export const APP_IDS = {
   RADIO: 'radio',
   MONITOR: 'monitor',
   MEDIA: 'media',
+  GHOST: 'ghost',
   GAME: 'game',
   // Social & Web Apps
   INSTAGRAM: 'instagram',

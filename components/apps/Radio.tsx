@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { AppProps } from '../../types';
-import { Radio as RadioIcon, Play, Pause, Volume2, Globe, Music2, Search, Signal, AlertCircle, ChevronLeft, MapPin } from 'lucide-react';
+import { Radio as RadioIcon, Play, Pause, Volume2, Globe, Music2, Search, AlertCircle, MapPin } from 'lucide-react';
 
 interface Station {
     stationuuid: string;
@@ -113,8 +113,6 @@ export const RadioApp: React.FC<AppProps> = () => {
 
         try {
             // Parallel search: By Country (Primary), By Name (Secondary), By Tag (Tertiary)
-            // This ensures if user types "Spain", they get Spain stations.
-            // If they type "Rock", they get Rock stations.
             const [countryRes, nameRes, tagRes] = await Promise.all([
                 fetch(`https://de1.api.radio-browser.info/json/stations/search?country=${q}&limit=${limit}&order=clickcount&reverse=true&is_https=true`).then(r => r.json()).catch(() => []),
                 fetch(`https://de1.api.radio-browser.info/json/stations/search?name=${q}&limit=${limit}&order=clickcount&reverse=true&is_https=true`).then(r => r.json()).catch(() => []),
@@ -139,7 +137,7 @@ export const RadioApp: React.FC<AppProps> = () => {
                 setStations(uniqueStations);
             }
         } catch (err) {
-            console.error(err);
+            // console.error(err);
             setError('Search failed. Check connection.');
         } finally {
             setLoading(false);
@@ -149,14 +147,17 @@ export const RadioApp: React.FC<AppProps> = () => {
     // --- PLAYER LOGIC ---
 
     const togglePlay = () => {
-        if (!audioRef.current) return;
+        if (!audioRef.current || !currentStation) return;
+        
         if (playing) {
             audioRef.current.pause();
             setPlaying(false);
         } else {
             const p = audioRef.current.play();
             if (p !== undefined) {
-                p.then(() => setPlaying(true)).catch(() => {
+                p.then(() => setPlaying(true)).catch((e) => {
+                    // Ignore abort errors caused by rapid toggling
+                    if (e.name === 'AbortError') return;
                     setError('Stream error. Try another.');
                     setPlaying(false);
                 });
@@ -173,13 +174,25 @@ export const RadioApp: React.FC<AppProps> = () => {
         setTimeout(() => {
             if (audioRef.current) {
                 audioRef.current.load();
-                audioRef.current.play()
-                    .then(() => setPlaying(true))
-                    .catch((e) => {
-                        console.error(e);
-                        setError('Offline or Geo-blocked.');
-                        setPlaying(false);
-                    });
+                const playPromise = audioRef.current.play();
+                
+                if (playPromise !== undefined) {
+                    playPromise
+                        .then(() => setPlaying(true))
+                        .catch((e) => {
+                            if (e.name === 'AbortError') {
+                                // Expected when switching stations rapidly
+                                return; 
+                            }
+                            // Do not console.error(e) here to avoid circular structure issues in some consoles
+                            if (e.name === 'NotAllowedError') {
+                                setError('Click play to start.');
+                            } else {
+                                setError('Stream unavailable/Offline.');
+                            }
+                            setPlaying(false);
+                        });
+                }
             }
         }, 100);
     };
@@ -384,11 +397,11 @@ export const RadioApp: React.FC<AppProps> = () => {
             {/* Hidden Audio Element */}
             <audio 
                 ref={audioRef} 
-                src={currentStation?.url_resolved} 
+                src={currentStation?.url_resolved || undefined} 
                 crossOrigin="anonymous"
-                onError={(e) => {
-                    console.error("Audio Error", e);
-                    setError('Connection lost.');
+                onError={() => {
+                    // Do NOT log the 'e' object
+                    setError('Connection lost or format unsupported.');
                     setPlaying(false);
                 }}
                 onEnded={() => setPlaying(false)}
