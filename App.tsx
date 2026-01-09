@@ -8,11 +8,12 @@ import { StoreApp } from './components/apps/Store';
 import { AssistantApp } from './components/apps/Assistant';
 import { BrowserApp } from './components/apps/Browser';
 import { RadioApp } from './components/apps/Radio';
+import { MonitorApp } from './components/apps/Monitor';
+import { MatrixBackground } from './components/os/MatrixBackground';
 import { AppDefinition, SystemSettings } from './types';
 import { APP_IDS, DEFAULT_WALLPAPER } from './constants';
-import { Terminal, Settings, Cloud, Search, LayoutGrid, FileText, Music, Gamepad2, Mic, Globe, Box, Instagram, Facebook, Mail, Youtube, Radio } from 'lucide-react';
+import { Terminal, Settings, Cloud, Search, LayoutGrid, FileText, Music, Gamepad2, Mic, Globe, Box, Instagram, Facebook, Mail, Youtube, Radio, Activity } from 'lucide-react';
 
-// --- Placeholder Apps ---
 const PlaceholderApp: React.FC<{title: string}> = ({ title }) => (
     <div className="flex items-center justify-center h-full text-slate-500 flex-col gap-4 bg-slate-900">
         <LayoutGrid size={48} className="opacity-20" />
@@ -20,7 +21,6 @@ const PlaceholderApp: React.FC<{title: string}> = ({ title }) => (
     </div>
 );
 
-// --- Default Registry ---
 const DEFAULT_REGISTRY: Record<string, AppDefinition> = {
   [APP_IDS.TERMINAL]: { id: APP_IDS.TERMINAL, name: 'Terminal', icon: Terminal, color: 'emerald', component: TerminalApp, isSystem: true },
   [APP_IDS.SETTINGS]: { id: APP_IDS.SETTINGS, name: 'Settings', icon: Settings, color: 'slate', component: SettingsApp, isSystem: true },
@@ -28,9 +28,9 @@ const DEFAULT_REGISTRY: Record<string, AppDefinition> = {
   [APP_IDS.ASSISTANT]: { id: APP_IDS.ASSISTANT, name: 'Assistant', icon: Search, color: 'indigo', component: AssistantApp, isSystem: true },
   [APP_IDS.BROWSER]: { id: APP_IDS.BROWSER, name: 'Shadow Surf', icon: Globe, color: 'blue', component: BrowserApp, isSystem: true },
   [APP_IDS.RADIO]: { id: APP_IDS.RADIO, name: 'World Radio', icon: Radio, color: 'violet', component: RadioApp, isSystem: true },
+  [APP_IDS.MONITOR]: { id: APP_IDS.MONITOR, name: 'Net Monitor', icon: Activity, color: 'red', component: MonitorApp, isSystem: true },
   [APP_IDS.FILES]: { id: APP_IDS.FILES, name: 'Files', icon: FileText, color: 'yellow', component: () => <PlaceholderApp title="File Manager" /> },
   [APP_IDS.MEDIA]: { id: APP_IDS.MEDIA, name: 'Media Player', icon: Music, color: 'pink', component: () => <PlaceholderApp title="Media Player" /> },
-  // "Real" Apps (Web Wrappers)
   [APP_IDS.INSTAGRAM]: { id: APP_IDS.INSTAGRAM, name: 'Instagram', icon: Instagram, color: 'pink', component: BrowserApp, defaultUrl: 'https://instagram.com' },
   [APP_IDS.FACEBOOK]: { id: APP_IDS.FACEBOOK, name: 'Facebook', icon: Facebook, color: 'blue', component: BrowserApp, defaultUrl: 'https://facebook.com' },
   [APP_IDS.GMAIL]: { id: APP_IDS.GMAIL, name: 'Gmail', icon: Mail, color: 'red', component: BrowserApp, defaultUrl: 'https://gmail.com' },
@@ -43,11 +43,11 @@ export default function App() {
 
   const [installedApps, setInstalledApps] = useState<string[]>([
     APP_IDS.TERMINAL, 
+    APP_IDS.MONITOR,
     APP_IDS.STORE, 
     APP_IDS.SETTINGS,
-    APP_IDS.BROWSER,
-    APP_IDS.RADIO,
-    APP_IDS.GMAIL
+    APP_IDS.BROWSER, 
+    APP_IDS.RADIO
   ]);
   
   const [runningApps, setRunningApps] = useState<string[]>([]);
@@ -58,10 +58,10 @@ export default function App() {
     wallpaper: DEFAULT_WALLPAPER,
     darkMode: true,
     accentColor: 'blue',
-    userName: 'user',
-    hostname: 'cloud-os',
+    userName: 'root',
+    hostname: 'kali',
     isComputerMode: false,
-    // Defaults for new settings
+    themeMode: 'default',
     iconSize: 'medium',
     gridDensity: 'comfortable',
     glassIntensity: 'medium',
@@ -69,64 +69,55 @@ export default function App() {
     dockBehavior: 'always'
   });
 
-  // --- Persistence Logic ---
+  const isHackerMode = settings.themeMode === 'hacker';
+
+  // Persistence
   useEffect(() => {
-    // Load persisted data on mount
     const savedApps = localStorage.getItem('installedApps');
     const savedCustomRegistry = localStorage.getItem('customRegistry');
     
     if (savedCustomRegistry) {
         try {
             const parsed = JSON.parse(savedCustomRegistry);
-            // Rehydrate component references since JSON removed them
             const rehydrated: Record<string, AppDefinition> = {};
             Object.keys(parsed).forEach(key => {
                 rehydrated[key] = {
                     ...parsed[key],
-                    component: BrowserApp, // All custom web apps use the Browser wrapper
-                    icon: Box // Generic icon
+                    component: BrowserApp, 
+                    icon: Box 
                 };
             });
             setAppRegistry(prev => ({ ...prev, ...rehydrated }));
-        } catch (e) {
-            console.error("Failed to load custom apps", e);
-        }
+        } catch (e) { console.error(e); }
     }
     
     if (savedApps) {
-        try {
-            setInstalledApps(JSON.parse(savedApps));
-        } catch (e) {
-            console.error("Failed to load installed apps list", e);
-        }
+        try { setInstalledApps(JSON.parse(savedApps)); } catch (e) {}
     }
   }, []);
 
-  // Save installed apps whenever they change
   useEffect(() => {
       localStorage.setItem('installedApps', JSON.stringify(installedApps));
   }, [installedApps]);
 
   useEffect(() => {
-    if (settings.darkMode) {
-      document.documentElement.classList.add('dark');
+    // Theme Injection
+    if (isHackerMode) {
+        document.documentElement.classList.add('dark');
+        document.documentElement.style.setProperty('--window-bg', 'rgba(0, 0, 0, 0.95)');
+        document.documentElement.style.setProperty('--font-primary', '"JetBrains Mono", monospace');
     } else {
-      document.documentElement.classList.remove('dark');
+        if (settings.darkMode) document.documentElement.classList.add('dark');
+        else document.documentElement.classList.remove('dark');
+        const opacity = settings.glassIntensity === 'low' ? '0.98' : settings.glassIntensity === 'medium' ? '0.90' : '0.80';
+        document.documentElement.style.setProperty('--window-bg', settings.darkMode ? `rgba(15, 23, 42, ${opacity})` : `rgba(255, 255, 255, ${opacity})`);
+        document.documentElement.style.removeProperty('--font-primary');
     }
-    
-    // Set CSS variable for glass effect
-    const opacity = settings.glassIntensity === 'low' ? '0.98' : settings.glassIntensity === 'medium' ? '0.90' : '0.80';
-    document.documentElement.style.setProperty('--window-bg', settings.darkMode ? `rgba(15, 23, 42, ${opacity})` : `rgba(255, 255, 255, ${opacity})`);
-  }, [settings.darkMode, settings.glassIntensity]);
+  }, [settings.darkMode, settings.glassIntensity, isHackerMode]);
 
   const openApp = (id: string) => {
-    if (!runningApps.includes(id)) {
-      setRunningApps([...runningApps, id]);
-    }
-    // Restore if minimized
-    if (minimizedApps.includes(id)) {
-        setMinimizedApps(minimizedApps.filter(appId => appId !== id));
-    }
+    if (!runningApps.includes(id)) setRunningApps([...runningApps, id]);
+    if (minimizedApps.includes(id)) setMinimizedApps(minimizedApps.filter(appId => appId !== id));
     setActiveAppId(id);
   };
 
@@ -142,55 +133,35 @@ export default function App() {
   const closeApp = (id: string) => {
     setRunningApps(runningApps.filter(appId => appId !== id));
     setMinimizedApps(minimizedApps.filter(appId => appId !== id));
-    if (activeAppId === id) {
-      setActiveAppId(null);
-    }
+    if (activeAppId === id) setActiveAppId(null);
   };
 
   const minimizeApp = (id: string) => {
-      if (!minimizedApps.includes(id)) {
-          setMinimizedApps([...minimizedApps, id]);
-      }
-      if (activeAppId === id) {
-          setActiveAppId(null);
-      }
+      if (!minimizedApps.includes(id)) setMinimizedApps([...minimizedApps, id]);
+      if (activeAppId === id) setActiveAppId(null);
   };
 
   const installApp = (id: string) => {
-    if (!installedApps.includes(id)) {
-      setInstalledApps([...installedApps, id]);
-    }
+    if (!installedApps.includes(id)) setInstalledApps([...installedApps, id]);
   };
 
   const installCustomApp = (name: string, url: string) => {
       const id = `custom-${Date.now()}`;
       const newApp: AppDefinition = {
-          id,
-          name,
-          icon: Box,
-          color: 'indigo',
-          component: BrowserApp,
-          defaultUrl: url
+          id, name, icon: Box, color: 'indigo', component: BrowserApp, defaultUrl: url
       };
-      
-      // Update Registry (Memory)
       setAppRegistry(prev => {
-          const updated: Record<string, AppDefinition> = { ...prev, [id]: newApp };
-          
-          // Persist Custom Registry (only simple data)
+          const updated = { ...prev, [id]: newApp };
           const toSave: Record<string, any> = {};
-          Object.values(updated).forEach((app: AppDefinition) => {
+          (Object.values(updated) as AppDefinition[]).forEach((app) => {
               if (app.id.startsWith('custom-')) {
-                  // Strip component and icon function
                   const { component, icon, ...rest } = app;
                   toSave[app.id] = rest;
               }
           });
           localStorage.setItem('customRegistry', JSON.stringify(toSave));
-          
           return updated;
       });
-
       setInstalledApps(prev => [...prev, id]);
   };
 
@@ -199,24 +170,17 @@ export default function App() {
     closeApp(id);
   };
 
-  const updateSettings = (newSettings: Partial<SystemSettings>) => {
-      setSettings(prev => ({ ...prev, ...newSettings }));
-  };
-
-  const toggleComputerMode = () => {
-      updateSettings({ isComputerMode: !settings.isComputerMode });
-  };
-
+  const updateSettings = (newSettings: Partial<SystemSettings>) => setSettings(prev => ({ ...prev, ...newSettings }));
+  const toggleComputerMode = () => updateSettings({ isComputerMode: !settings.isComputerMode });
   const handleHome = () => {
       const toMinimize = runningApps.filter(id => !minimizedApps.includes(id));
       setMinimizedApps([...minimizedApps, ...toMinimize]);
       setActiveAppId(null);
   };
 
-  const myApps = installedApps.map(id => appRegistry[id]).filter(Boolean) as AppDefinition[];
-  const allRegistryApps = Object.values(appRegistry).filter((a: AppDefinition) => !a.id.startsWith('custom-'));
+  const myApps = installedApps.map(id => appRegistry[id]).filter((app): app is AppDefinition => !!app);
+  const allRegistryApps = (Object.values(appRegistry) as AppDefinition[]).filter(a => !a.id.startsWith('custom-'));
 
-  // Calculate Grid Classes based on settings
   const getGridCols = () => {
       if (settings.isComputerMode) return 'grid-cols-[repeat(auto-fill,minmax(80px,1fr))]';
       switch(settings.iconSize) {
@@ -227,99 +191,59 @@ export default function App() {
       }
   };
 
-  const getIconSize = () => {
-      if (settings.isComputerMode) return 28;
-      switch(settings.iconSize) {
-          case 'small': return 32; // md:40
-          case 'medium': return 48; // md:56
-          case 'large': return 64; // md:72
-          default: return 48;
-      }
-  };
-
-  const getIconContainerSize = () => {
-      if (settings.isComputerMode) return 'w-14 h-14';
-      switch(settings.iconSize) {
-          case 'small': return 'w-12 h-12 md:w-14 md:h-14';
-          case 'medium': return 'w-16 h-16 md:w-20 md:h-20';
-          case 'large': return 'w-20 h-20 md:w-24 md:h-24';
-          default: return 'w-16 h-16';
-      }
-  };
-
-  // Adjust Grid margin based on dock position
-  const getGridPadding = () => {
-      if (!settings.isComputerMode) return 'pb-24'; // Mobile bottom dock space
-      
-      switch (settings.dockPosition) {
-          case 'bottom': return 'pb-16';
-          case 'left': return 'pl-16';
-          case 'right': return 'pr-16';
-          default: return 'pb-16';
-      }
-  };
-
   return (
     <div 
-      className="relative w-full h-screen overflow-hidden bg-cover bg-center transition-all duration-700"
-      style={{ backgroundImage: `url(${settings.wallpaper})` }}
+      className={`relative w-full h-screen overflow-hidden bg-cover bg-center transition-all duration-700 ${isHackerMode ? 'font-mono text-green-500 bg-black' : ''}`}
+      style={{ backgroundImage: isHackerMode ? 'none' : `url(${settings.wallpaper})` }}
     >
-      <div className="absolute inset-0 bg-black/20 backdrop-blur-[1px]" />
+      {isHackerMode ? (
+          <MatrixBackground />
+      ) : (
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-[1px]" />
+      )}
+
+      {/* Scanline Overlay for Hacker Mode */}
+      {isHackerMode && (
+          <div className="absolute inset-0 pointer-events-none z-0" style={{ background: 'linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06))', backgroundSize: '100% 2px, 3px 100%' }} />
+      )}
 
       <StatusBar isComputerMode={settings.isComputerMode} toggleMode={toggleComputerMode} />
 
       {/* Desktop Grid */}
-      <div className={`absolute inset-0 pt-14 px-4 md:px-8 grid content-start transition-all overflow-y-auto
-          ${getGridCols()}
-          ${getGridPadding()}
-          ${settings.isComputerMode ? 'grid-rows-[repeat(auto-fill,minmax(80px,1fr))]' : ''}
-          ${settings.gridDensity === 'compact' ? 'gap-2' : 'gap-6'}
-      `}>
+      <div className={`absolute inset-0 pt-14 px-4 md:px-8 grid content-start transition-all overflow-y-auto ${getGridCols()} ${settings.gridDensity === 'compact' ? 'gap-2' : 'gap-6'} pb-24`}>
         {myApps.map((app) => (
           <button
             key={app.id}
             onClick={() => openApp(app.id)}
-            className={`flex flex-col items-center group p-2 rounded-xl hover:bg-white/10 transition-colors ${settings.gridDensity === 'compact' ? 'gap-1' : 'gap-2'}`}
+            className="flex flex-col items-center group p-2 rounded-xl hover:bg-white/10 transition-colors gap-2"
           >
             <div className={`
-              rounded-2xl flex items-center justify-center shadow-lg border border-white/10 transition-all duration-300 relative overflow-hidden
+              rounded-2xl flex items-center justify-center shadow-lg border transition-all duration-300 relative overflow-hidden
               ${settings.isComputerMode 
-                 ? 'w-14 h-14 bg-slate-800/80 text-' + app.color + '-400' 
-                 : `${getIconContainerSize()} bg-gradient-to-br from-slate-800 to-slate-900 text-${app.color}-400`
+                 ? (isHackerMode ? 'w-14 h-14 bg-black border-green-500' : `w-14 h-14 bg-slate-800/80 text-${app.color}-400 border-white/10`)
+                 : (isHackerMode ? 'w-16 h-16 bg-black border-green-500 shadow-[0_0_15px_rgba(0,255,0,0.3)]' : 'w-16 h-16 bg-gradient-to-br from-slate-800 to-slate-900 border-white/10')
               }
               group-hover:scale-105 group-active:scale-95
             `}>
-                {/* Glossy Effect */}
-                <div className="absolute inset-0 bg-gradient-to-tr from-white/5 to-transparent pointer-events-none" />
-                <app.icon size={getIconSize()} />
+                <app.icon size={isHackerMode ? 28 : 32} className={isHackerMode ? 'text-green-500' : `text-${app.color}-400`} />
             </div>
-            <span className="text-xs text-white font-medium drop-shadow-md truncate w-full text-center bg-black/30 px-2.5 py-0.5 rounded-full backdrop-blur-sm border border-white/5">
+            <span className={`text-xs font-medium drop-shadow-md truncate w-full text-center px-2.5 py-0.5 rounded-full backdrop-blur-sm ${isHackerMode ? 'bg-black/70 text-green-500 border border-green-900' : 'bg-black/30 text-white border border-white/5'}`}>
               {app.name}
             </span>
           </button>
         ))}
       </div>
 
-      {/* Windows Layer */}
+      {/* Windows */}
       {runningApps.map(appId => {
         const appDef = appRegistry[appId];
         if (!appDef) return null;
         const AppComp = appDef.component;
-        let extraProps: any = { args: { url: appDef.defaultUrl } };
+        let extraProps: any = { args: { url: appDef.defaultUrl }, isHackerMode };
 
-        if (appId === APP_IDS.SETTINGS) {
-            extraProps = { settings, updateSettings };
-        } else if (appId === APP_IDS.STORE) {
-            extraProps = { availableApps: allRegistryApps, installedAppIds: installedApps, onInstall: installApp, onUninstall: uninstallApp, onInstallCustom: installCustomApp };
-        } else if (appId === APP_IDS.BROWSER || appDef.component === BrowserApp) {
-            // Pass wallpaper setter to Browser
-            extraProps = { 
-                args: { 
-                    url: appDef.defaultUrl, 
-                    onSetWallpaper: (url: string) => updateSettings({ wallpaper: url }) 
-                } 
-            };
-        }
+        if (appId === APP_IDS.SETTINGS) extraProps = { settings, updateSettings, isHackerMode };
+        else if (appId === APP_IDS.STORE) extraProps = { availableApps: allRegistryApps, installedAppIds: installedApps, onInstall: installApp, onUninstall: uninstallApp, onInstallCustom: installCustomApp };
+        else if (appId === APP_IDS.BROWSER || appDef.component === BrowserApp) extraProps = { args: { url: appDef.defaultUrl, onSetWallpaper: (url: string) => updateSettings({ wallpaper: url }) }, isHackerMode };
 
         return (
           <Window

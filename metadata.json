@@ -2,6 +2,8 @@
   "name": "CloudOS Mobile",
   "description": "A customizable, Linux-inspired mobile operating system simulation allowing users to install and run cloud applications.",
   "requestFramePermissions": [
-    "microphone"
+    "microphone",
+    "camera",
+    "geolocation"
   ]
 }

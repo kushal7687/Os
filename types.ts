@@ -15,6 +15,7 @@ export interface AppProps {
   onClose: () => void;
   isFocused: boolean;
   isComputerMode?: boolean;
+  isHackerMode?: boolean; // New Prop
   args?: any;
 }
 
@@ -33,6 +34,7 @@ export interface SystemSettings {
   userName: string;
   hostname: string;
   isComputerMode: boolean;
+  themeMode: 'default' | 'hacker'; // New Setting
   // Home Screen
   iconSize: 'small' | 'medium' | 'large';
   gridDensity: 'compact' | 'comfortable';
