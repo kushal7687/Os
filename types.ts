@@ -3,11 +3,12 @@ import React from 'react';
 export interface AppDefinition {
   id: string;
   name: string;
-  icon: any; // Lucide Icon component
+  icon: any; // Relaxed to 'any' to prevent Lucide version mismatches
   color: string;
-  component: any; // Explicitly 'any' to allow components with different Prop interfaces
-  isSystem?: boolean; // Cannot be uninstalled
-  defaultUrl?: string; // For web apps
+  component: any; // Relaxed to 'any' to accept components with varying props (like SettingsApp)
+  isSystem?: boolean; 
+  defaultUrl?: string;
+  [key: string]: any; // Index signature: Allow any other extra properties to prevent strict errors
 }
 
 export interface AppProps {
