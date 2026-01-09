@@ -5,7 +5,7 @@ export class VirtualFileSystem {
   current: FileSystemNode;
   user: string;
 
-  constructor(user: string = 'user') {
+  constructor(user: string = 'root') {
     this.user = user;
     
     // Initialize Root
@@ -15,26 +15,63 @@ export class VirtualFileSystem {
       children: {}
     };
 
-    // Initialize Standard Directories
-    this.mkdir(this.root, 'home');
-    this.mkdir(this.root, 'bin');
-    this.mkdir(this.root, 'etc');
-    this.mkdir(this.root, 'var');
+    // --- Build Standard Linux Hierarchy ---
+    const bin = this.mkdir(this.root, 'bin');
+    const etc = this.mkdir(this.root, 'etc');
+    const home = this.mkdir(this.root, 'home');
+    const rootHome = this.mkdir(this.root, 'root');
+    const tmp = this.mkdir(this.root, 'tmp');
+    const usr = this.mkdir(this.root, 'usr');
+    const varDir = this.mkdir(this.root, 'var');
 
-    // User Home
-    const home = this.root.children!['home'];
-    this.mkdir(home, user);
-    
-    // Set CWD to ~
-    this.current = home.children![user];
-    
-    // Add some default files
-    this.touch(this.current, 'welcome.txt', 'Welcome to CloudOS Mobile!\nThis is a simulated Linux environment.');
-    this.touch(this.current, 'todo.list', '- Install apps\n- Check email\n- Conquer the cloud');
+    // /usr/share/wordlists (Kali Standard)
+    const share = this.mkdir(usr, 'share');
+    const wordlists = this.mkdir(share, 'wordlists');
+    this.writeFile(wordlists, 'rockyou.txt', '123456\npassword\nadmin\n12345678\nroot\n...(14 million entries)...');
+
+    // /etc/passwd
+    this.writeFile(etc, 'passwd', 'root:x:0:0:root:/root:/bin/zsh\nuser:x:1000:1000:user:/home/user:/bin/zsh');
+
+    // /etc/os-release
+    this.writeFile(etc, 'os-release', 'PRETTY_NAME="Kali GNU/Linux Rolling"\nNAME="Kali GNU/Linux"\nID=kali\nVERSION="2024.1"\nID_LIKE=debian');
+
+    // /root/
+    this.writeFile(rootHome, 'welcome.msg', 'Welcome to the Neural Kernel.\nAll systems operational.');
+    this.writeFile(rootHome, 'todo.txt', '- Update metasploit\n- Scan target 192.168.1.55\n- Write payload.py');
+
+    // Set CWD to /root
+    this.current = rootHome;
+  }
+
+  // --- Core Operations ---
+
+  resolvePath(path: string): FileSystemNode | null {
+    if (!path) return this.current;
+    if (path === '/') return this.root;
+    if (path === '~') return this.root.children!['root'];
+
+    let node = path.startsWith('/') ? this.root : this.current;
+    const parts = path.split('/').filter(Boolean);
+
+    for (const part of parts) {
+      if (part === '.') continue;
+      if (part === '..') {
+        if (node.parent) node = node.parent;
+        continue;
+      }
+      if (node.children && node.children[part]) {
+        node = node.children[part];
+      } else {
+        return null;
+      }
+    }
+    return node;
   }
 
   mkdir(parent: FileSystemNode, name: string): FileSystemNode {
     if (!parent.children) parent.children = {};
+    if (parent.children[name]) return parent.children[name];
+    
     const newDir: FileSystemNode = {
       name,
       type: 'dir',
@@ -45,8 +82,14 @@ export class VirtualFileSystem {
     return newDir;
   }
 
-  touch(parent: FileSystemNode, name: string, content: string = ''): FileSystemNode {
+  writeFile(parent: FileSystemNode, name: string, content: string): FileSystemNode {
     if (!parent.children) parent.children = {};
+    // Overwrite if exists
+    if (parent.children[name]) {
+        parent.children[name].content = content;
+        return parent.children[name];
+    }
+    
     const newFile: FileSystemNode = {
       name,
       type: 'file',
@@ -57,38 +100,63 @@ export class VirtualFileSystem {
     return newFile;
   }
 
-  cd(path: string): string {
-    if (path === '/' || path === '') {
-      this.current = this.root;
-      return '';
+  readFile(path: string): string | null {
+    const node = this.resolvePath(path);
+    if (node && node.type === 'file') {
+        return node.content || '';
     }
-    if (path === '..') {
-      if (this.current.parent) {
-        this.current = this.current.parent;
-      }
-      return '';
+    // Try resolving as child of current if simple name
+    if (this.current.children && this.current.children[path] && this.current.children[path].type === 'file') {
+        return this.current.children[path].content || '';
     }
-    if (path === '~') {
-        const home = this.root.children?.['home']?.children?.[this.user];
-        if (home) this.current = home;
+    return null;
+  }
+
+  rm(path: string): string {
+    const target = this.resolvePath(path);
+    if (!target) return `rm: cannot remove '${path}': No such file or directory`;
+    
+    // Cannot delete root
+    if (target === this.root) return `rm: cannot remove root directory`;
+
+    if (target.parent && target.parent.children) {
+        delete target.parent.children[target.name];
         return '';
     }
+    return 'rm: unknown error';
+  }
 
-    const target = this.current.children?.[path];
+  // --- Shell Commands Support ---
+
+  cd(path: string): string {
+    if (!path || path === '~') {
+        const home = this.root.children!['root'];
+        this.current = home;
+        return '';
+    }
+    
+    const target = this.resolvePath(path);
     if (target && target.type === 'dir') {
       this.current = target;
       return '';
-    } else {
-      return `cd: no such file or directory: ${path}`;
     }
+    return `cd: no such file or directory: ${path}`;
   }
 
-  ls(): string {
+  ls(flags: string = ''): string {
     if (!this.current.children) return '';
-    const items = Object.values(this.current.children).map(node => {
-        return node.type === 'dir' ? `\x1b[1;34m${node.name}/\x1b[0m` : node.name;
-    });
-    return items.join('  ');
+    const items = Object.values(this.current.children);
+    
+    if (items.length === 0) return '';
+
+    return items.map(node => {
+        let color = '\x1b[0m'; // Default white
+        if (node.type === 'dir') color = '\x1b[1;34m'; // Blue Bold
+        else if (node.name.endsWith('.sh') || node.name.endsWith('.py') || node.name.endsWith('.pl')) color = '\x1b[1;32m'; // Green Bold
+        else if (node.name.endsWith('.zip') || node.name.endsWith('.tar.gz')) color = '\x1b[1;31m'; // Red Bold
+        
+        return `${color}${node.name}\x1b[0m`;
+    }).join('  ');
   }
 
   pwd(): string {
@@ -101,20 +169,22 @@ export class VirtualFileSystem {
     return path || '/';
   }
 
-  cat(filename: string): string {
-    const file = this.current.children?.[filename];
-    if (file && file.type === 'file') {
-      return file.content || '';
-    }
-    return `cat: ${filename}: No such file`;
-  }
+  // Generate context for AI execution
+  getAIContext(): string {
+      const files = this.current.children ? Object.keys(this.current.children) : [];
+      let context = `Current User: root\nCurrent Directory: ${this.pwd()}\nDirectory Contents: ${JSON.stringify(files)}\n`;
+      
+      // If there are scripts in the directory, feed their content to AI so it can "run" them
+      files.forEach(f => {
+          const node = this.current.children![f];
+          if (node.type === 'file' && (f.endsWith('.py') || f.endsWith('.sh') || f.endsWith('.txt'))) {
+              context += `\n[FILE START: ${f}]\n${node.content}\n[FILE END: ${f}]\n`;
+          }
+      });
 
-  // Helper to resolve paths like /etc/hosts (simplified)
-  resolve(path: string): FileSystemNode | null {
-      // Not implemented for this demo, assumes relative paths usually
-      return null;
+      return context;
   }
 }
 
-// Singleton instance
+// Global Singleton
 export const fs = new VirtualFileSystem();
