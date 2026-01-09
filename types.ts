@@ -5,7 +5,7 @@ export interface AppDefinition {
   name: string;
   icon: any; // Lucide Icon component
   color: string;
-  component: React.ComponentType<AppProps>;
+  component: React.ComponentType<any>; // Changed from AppProps to any to allow apps with extra props
   isSystem?: boolean; // Cannot be uninstalled
   defaultUrl?: string; // For web apps
 }
